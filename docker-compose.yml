@@ -1,0 +1,279 @@
+version: '3.8'
+
+networks:
+  microservices-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  mongodb-data:
+  minio-data:
+
+services:
+  # ========================================
+  # MySQL - Base de données relationnelle
+  # ========================================
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-local
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_ROOT_HOST: '%'
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: --default-authentication-plugin=mysql_native_password
+
+  # ========================================
+  # PhpMyAdmin - Interface MySQL
+  # ========================================
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: phpmyadmin-local
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: ${MYSQL_USERNAME}
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      UPLOAD_LIMIT: 100M
+    ports:
+      - "${PHPMYADMIN_PORT}:80"
+    networks:
+      - microservices-network
+
+  # ========================================
+  # MongoDB - Base de données NoSQL
+  # ========================================
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb-local
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    ports:
+      - "${MONGO_PORT}:27017"
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================================
+  # Mongo Express - Interface MongoDB
+  # ========================================
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo-express-local
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_ROOT_USERNAME}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_ROOT_PASSWORD}
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USERNAME}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASSWORD}
+    ports:
+      - "${MONGO_EXPRESS_PORT}:8081"
+    networks:
+      - microservices-network
+
+  # ========================================
+  # MinIO - Stockage S3-compatible
+  # ========================================
+  minio:
+    image: minio/minio:latest
+    container_name: minio-local
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_API_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - microservices-network
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================================
+  # MinIO Init - Création des buckets
+  # ========================================
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    networks:
+      - microservices-network
+    entrypoint: /bin/sh
+    command: >
+      -c "
+      echo '⏳ Configuration MinIO...';
+      sleep 5;
+      
+      mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      
+      mc mb myminio/artifacts-bucket || true;
+      mc mb myminio/datasets-bucket || true;
+      mc mb myminio/reports-bucket || true;
+      mc mb myminio/backups-bucket || true;
+      
+      mc anonymous set download myminio/reports-bucket;
+      
+      echo '✅ Buckets MinIO créés';
+      "
+
+  # ========================================
+  # Newman - Tests d'intégration API
+  # ========================================
+  newman:
+    image: postman/newman:alpine
+    container_name: newman-local
+    volumes:
+      - ./newman-collections:/etc/newman
+    networks:
+      - microservices-network
+    entrypoint: ["tail", "-f", "/dev/null"]
+
+  # ========================================
+  # Logger - Affiche tous les liens d'accès
+  # ========================================
+  access-logger:
+    image: alpine:latest
+    container_name: access-logger
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      MYSQL_PORT: ${MYSQL_PORT}
+      MYSQL_USERNAME: ${MYSQL_USERNAME}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MONGO_PORT: ${MONGO_PORT}
+      MONGO_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_EXPRESS_PORT: ${MONGO_EXPRESS_PORT}
+      MONGO_EXPRESS_USERNAME: ${MONGO_EXPRESS_USERNAME}
+      MONGO_EXPRESS_PASSWORD: ${MONGO_EXPRESS_PASSWORD}
+      MINIO_API_PORT: ${MINIO_API_PORT}
+      MINIO_CONSOLE_PORT: ${MINIO_CONSOLE_PORT}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      PHPMYADMIN_PORT: ${PHPMYADMIN_PORT}
+    networks:
+      - microservices-network
+    entrypoint: /bin/sh
+    command: >
+      -c "
+      sleep 10;
+      echo '';
+      echo '╔════════════════════════════════════════════════════════════════╗';
+      echo '║                                                                ║';
+      echo '║   🚀 ENVIRONNEMENT LOCAL PRÊT !                               ║';
+      echo '║                                                                ║';
+      echo '╚════════════════════════════════════════════════════════════════╝';
+      echo '';
+      echo '📦 SERVICES DISPONIBLES :';
+      echo '';
+      echo '┌────────────────────────────────────────────────────────────────┐';
+      echo '│ 🗄️  MySQL Database                                            │';
+      echo '│    📍 Host     : localhost:$${MYSQL_PORT}                      │';
+      echo '│    👤 User     : $${MYSQL_USERNAME}                            │';
+      echo '│    🔑 Password : $${MYSQL_ROOT_PASSWORD}                       │';
+      echo '│    💾 Database : $${MYSQL_DATABASE}                            │';
+      echo '│                                                                │';
+      echo '│    📝 Connection String :                                      │';
+      echo '│    jdbc:mysql://localhost:$${MYSQL_PORT}/$${MYSQL_DATABASE}   │';
+      echo '└────────────────────────────────────────────────────────────────┘';
+      echo '';
+      echo '┌────────────────────────────────────────────────────────────────┐';
+      echo '│ 🌐 PhpMyAdmin (Interface MySQL)                               │';
+      echo '│    🔗 URL      : http://localhost:$${PHPMYADMIN_PORT}          │';
+      echo '│    👤 User     : $${MYSQL_USERNAME}                            │';
+      echo '│    🔑 Password : $${MYSQL_ROOT_PASSWORD}                       │';
+      echo '└────────────────────────────────────────────────────────────────┘';
+      echo '';
+      echo '┌────────────────────────────────────────────────────────────────┐';
+      echo '│ 🍃 MongoDB Database                                            │';
+      echo '│    📍 Host     : localhost:$${MONGO_PORT}                      │';
+      echo '│    👤 User     : $${MONGO_ROOT_USERNAME}                       │';
+      echo '│    🔑 Password : $${MONGO_ROOT_PASSWORD}                       │';
+      echo '│                                                                │';
+      echo '│    📝 Connection String :                                      │';
+      echo '│    mongodb://$${MONGO_ROOT_USERNAME}:$${MONGO_ROOT_PASSWORD}@localhost:$${MONGO_PORT} │';
+      echo '└────────────────────────────────────────────────────────────────┘';
+      echo '';
+      echo '┌────────────────────────────────────────────────────────────────┐';
+      echo '│ 🌿 Mongo Express (Interface MongoDB)                          │';
+      echo '│    🔗 URL      : http://localhost:$${MONGO_EXPRESS_PORT}       │';
+      echo '│    👤 User     : $${MONGO_EXPRESS_USERNAME}                    │';
+      echo '│    🔑 Password : $${MONGO_EXPRESS_PASSWORD}                    │';
+      echo '└────────────────────────────────────────────────────────────────┘';
+      echo '';
+      echo '┌────────────────────────────────────────────────────────────────┐';
+      echo '│ 🪣 MinIO (S3-Compatible Storage)                              │';
+      echo '│    🔗 API      : http://localhost:$${MINIO_API_PORT}           │';
+      echo '│    🌐 Console  : http://localhost:$${MINIO_CONSOLE_PORT}       │';
+      echo '│    👤 User     : $${MINIO_ROOT_USER}                           │';
+      echo '│    🔑 Password : $${MINIO_ROOT_PASSWORD}                       │';
+      echo '│                                                                │';
+      echo '│    📦 Buckets disponibles :                                    │';
+      echo '│       • artifacts-bucket                                       │';
+      echo '│       • datasets-bucket                                        │';
+      echo '│       • reports-bucket                                         │';
+      echo '│       • backups-bucket                                         │';
+      echo '└────────────────────────────────────────────────────────────────┘';
+      echo '';
+      echo '🔧 COMMANDES UTILES :';
+      echo '';
+      echo '  🛑 Arrêter tous les services :';
+      echo '     docker-compose down';
+      echo '';
+      echo '  📋 Voir les logs :';
+      echo '     docker-compose logs -f [service_name]';
+      echo '';
+      echo '  🔄 Redémarrer un service :';
+      echo '     docker-compose restart [service_name]';
+      echo '';
+      echo '  📊 État des services :';
+      echo '     docker-compose ps';
+      echo '';
+      echo '════════════════════════════════════════════════════════════════';
+      echo '';
+      tail -f /dev/null
+      "
