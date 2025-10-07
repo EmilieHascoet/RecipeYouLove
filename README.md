@@ -70,14 +70,14 @@ Le template parent est régulièrement mis à jour avec :
 
 ```bash
 # Ajouter le template comme remote "upstream"
-git remote add upstream https://github.com/votre-org/RecipeYouLove.git
+git remote add upstream https://github.com/votre-org/SmartDish.git
 
 # Vérifier les remotes configurés
 git remote -v
 # origin    https://github.com/votre-username/ms-authentification.git (fetch)
 # origin    https://github.com/votre-username/ms-authentification.git (push)
-# upstream  https://github.com/votre-org/RecipeYouLove.git (fetch)
-# upstream  https://github.com/votre-org/RecipeYouLove.git (push)
+# upstream  https://github.com/votre-org/SmartDish.git (fetch)
+# upstream  https://github.com/votre-org/SmartDish.git (push)
 ```
 
 #### 2. Processus de mise à jour (à répéter régulièrement)
@@ -191,8 +191,8 @@ git log --oneline --graph -10
 
 1. **Cloner le template** (ou forker pour créer un nouveau microservice)
 ```bash
-git clone https://github.com/votre-org/RecipeYouLove.git
-cd RecipeYouLove
+git clone https://github.com/votre-org/SmartDish.git
+cd SmartDish
 ```
 
 2. **Récupérer le fichier .env**
@@ -237,7 +237,7 @@ Une fois tous les services démarrés :
 
 **a) Modifier le `pom.xml`**
 ```xml
-<groupId>com.recipeyoulove</groupId>
+<groupId>com.smartdish</groupId>
 <artifactId>ms-nom-de-votre-microservice</artifactId>
 <name>ms-nom-de-votre-microservice</name>
 <description>Description de votre microservice</description>
@@ -248,12 +248,12 @@ Une fois tous les services démarrés :
 # Déplacer de :
 src/main/java/com/springbootTemplate/univ/soa/
 # Vers :
-src/main/java/com/recipeyoulove/[nom-microservice]/
+src/main/java/com/smartdish/[nom-microservice]/
 ```
 
 **c) Mettre à jour le fichier principal `Application.java`**
 ```java
-package com.recipeyoulove.[nom-microservice];
+package com.smartdish.[nom-microservice];
 
 @SpringBootApplication
 public class [NomMicroservice]Application {
@@ -285,7 +285,7 @@ spring.application.name=nom-de-votre-microservice
 ### 3. Structure recommandée pour chaque microservice
 
 ```
-src/main/java/com/recipeyoulove/[microservice]/
+src/main/java/com/smartdish/[microservice]/
 ├── Application.java
 ├── config/
 │   ├── DatabaseConfig.java
@@ -389,4 +389,4 @@ Pour toute question sur ce template ou l'architecture microservices :
 
 ---
 
-🎯 **Ce template est conçu pour accélérer le développement des microservices RecipeYouLove tout en garantissant une cohérence architecturale et une sécurité optimale.**
+🎯 **Ce template est conçu pour accélérer le développement des microservices SmartDish tout en garantissant une cohérence architecturale et une sécurité optimale.**
