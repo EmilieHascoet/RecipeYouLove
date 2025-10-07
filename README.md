@@ -1,4 +1,4 @@
-# 🍳 RecipeYouLove - Template Microservices
+# 🍳 SmartDish - Template Microservices
 
 ## 📖 Vue d'ensemble
 
