@@ -2,7 +2,7 @@
 
 ## 📖 Vue d'ensemble
 
-Ce projet constitue le **template parent** pour tous les microservices de l'application **RecipeYouLove**. Il s'agit d'un générateur de recettes intelligent qui recommande des plats à l'utilisateur en fonction des ingrédients saisis et de ses retours. Le système intègre un agent d'apprentissage par renforcement (RL) qui ajuste ses recommandations au fil du temps.
+Ce projet constitue le **template parent** pour tous les microservices de l'application **SmartDish**. Il s'agit d'un générateur de recettes intelligent qui recommande des plats à l'utilisateur en fonction des ingrédients saisis et de ses retours. Le système intègre un agent d'apprentissage par renforcement (RL) qui ajuste ses recommandations au fil du temps.
 
 ## 🏗️ Architecture Microservices
 
