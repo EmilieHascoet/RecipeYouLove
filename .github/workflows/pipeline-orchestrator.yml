@@ -1,0 +1,122 @@
+name: CI/CD Pipeline - Orchestrateur
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feat/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+env:
+  JAVA_VERSION: '21'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ========================================
+  # 1. Configuration Variables
+  # ========================================
+  config-vars:
+    uses: ./.github/workflows/config-vars.yml
+    secrets: inherit
+
+  # ========================================
+  # 2. Build Maven
+  # ========================================
+  build-maven:
+    needs: config-vars
+    uses: ./.github/workflows/build-maven.yml
+    with:
+      java-version: '21'
+      environment: ${{ needs.config-vars.outputs.environment }}
+    secrets: inherit
+
+  # ========================================
+  # 3. Check Coverage JaCoCo (Parallel)
+  # ========================================
+  check-coverage-jacoco:
+    needs: build-maven
+    uses: ./.github/workflows/check-coverage.yml
+    with:
+      java-version: '21'
+    secrets: inherit
+
+  # ========================================
+  # 4. SonarQube Analysis (main uniquement)
+  # ========================================
+  sonarqube-analysis:
+    needs: build-maven
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/sonar-analysis.yml
+    with:
+      java-version: '21'
+    secrets: inherit
+
+  # ========================================
+  # 5. Build Docker Image (Parallel)
+  # ========================================
+  build-docker-image:
+    needs: [build-maven, check-coverage-jacoco]
+    uses: ./.github/workflows/build-docker-image.yml
+    with:
+      image-tag: ${{ needs.config-vars.outputs.image-tag }}
+    secrets: inherit
+
+  # ========================================
+  # 6. Check Conformity Image (Security Scan)
+  # ========================================
+  check-conformity-image:
+    needs: build-docker-image
+    uses: ./.github/workflows/check-conformity-image.yml
+    with:
+      image-tag: ${{ needs.config-vars.outputs.image-tag }}
+    secrets: inherit
+
+  # ========================================
+  # 7. Deploy to Kubernetes
+  # ========================================
+  deploy-kubernetes:
+    needs: [config-vars, check-conformity-image]
+    if: needs.config-vars.outputs.should-deploy == 'true'
+    uses: ./.github/workflows/deploy-Kubernetes.yml
+    with:
+      environment: ${{ needs.config-vars.outputs.environment }}
+      image-tag: ${{ needs.config-vars.outputs.image-tag }}
+    secrets: inherit
+
+  # ========================================
+  # 8. Prepare Datasets
+  # ========================================
+  prepare-datasets:
+    needs: deploy-kubernetes
+    uses: ./.github/workflows/prepare-datasets.yml
+    with:
+      environment: ${{ needs.config-vars.outputs.environment }}
+    secrets: inherit
+
+  # ========================================
+  # 9. Run Integration Tests (Newman)
+  # ========================================
+  run-integration-tests:
+    needs: prepare-datasets
+    uses: ./.github/workflows/run-integration-tests.yml
+    with:
+      environment: ${{ needs.config-vars.outputs.environment }}
+    secrets: inherit
+
+  # ========================================
+  # 10. Cleanup Jobs
+  # ========================================
+  cleanup-jobs:
+    needs: [run-integration-tests]
+    if: always()
+    uses: ./.github/workflows/cleanup-jobs.yml
+    with:
+      environment: ${{ needs.config-vars.outputs.environment }}
+    secrets: inherit

@@ -1,0 +1,93 @@
+name: 🔧 Configuration Variables
+
+on:
+  workflow_call:
+    outputs:
+      environment:
+        description: "Environnement cible (dev/staging/production)"
+        value: ${{ jobs.config.outputs.environment }}
+      should-deploy:
+        description: "Doit-on déployer?"
+        value: ${{ jobs.config.outputs.should-deploy }}
+      image-tag:
+        description: "Tag de l'image Docker"
+        value: ${{ jobs.config.outputs.image-tag }}
+      namespace:
+        description: "Namespace Kubernetes"
+        value: ${{ jobs.config.outputs.namespace }}
+
+jobs:
+  config:
+    name: Déterminer la configuration
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      should-deploy: ${{ steps.set-env.outputs.should-deploy }}
+      image-tag: ${{ steps.set-env.outputs.image-tag }}
+      namespace: ${{ steps.set-env.outputs.namespace }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Déterminer l'environnement et la configuration
+        id: set-env
+        run: |
+          BRANCH_NAME="${GITHUB_REF#refs/heads/}"
+          COMMIT_SHA="${GITHUB_SHA::7}"
+          
+          echo "Branche: $BRANCH_NAME"
+          echo "Commit: $COMMIT_SHA"
+          
+          # Détermination de l'environnement selon la branche
+          if [[ "$BRANCH_NAME" == "main" ]]; then
+            ENVIRONMENT="production"
+            NAMESPACE="prod"
+            SHOULD_DEPLOY="true"
+            echo "Environnement: PRODUCTION"
+          elif [[ "$BRANCH_NAME" == "develop" ]]; then
+            ENVIRONMENT="staging"
+            NAMESPACE="staging"
+            SHOULD_DEPLOY="true"
+            echo "Environnement: STAGING"
+          elif [[ "$BRANCH_NAME" == feature/* ]] || [[ "$BRANCH_NAME" == hotfix/* ]]; then
+            ENVIRONMENT="dev"
+            NAMESPACE="dev"
+            SHOULD_DEPLOY="true"
+            echo "🔧 Environnement: DEV"
+          else
+            ENVIRONMENT="dev"
+            NAMESPACE="dev"
+            SHOULD_DEPLOY="false"
+            echo "Branche non reconnue, pas de déploiement"
+          fi
+          
+          # Génération du tag d'image
+          IMAGE_TAG="${COMMIT_SHA}-${BRANCH_NAME//\//-}"
+          
+          # Export des outputs
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          echo "should-deploy=${SHOULD_DEPLOY}" >> $GITHUB_OUTPUT
+          echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
+          
+          # Affichage récapitulatif
+          echo "### Configuration Pipeline" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Variable | Valeur |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Branche | \`$BRANCH_NAME\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environnement | **$ENVIRONMENT** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Namespace K8s | \`$NAMESPACE\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag Image | \`$IMAGE_TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Déploiement | $SHOULD_DEPLOY |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Récupérer secrets depuis Vault (optionnel)
+        if: env.VAULT_ENABLED == 'true'
+        env:
+          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
+          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
+        run: |
+          echo "Configuration Vault..."
+          # TODO: Implémenter récupération secrets Vault
+          # vault kv get secret/mysql
+          # vault kv get secret/mongodb

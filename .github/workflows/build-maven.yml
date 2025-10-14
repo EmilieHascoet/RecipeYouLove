@@ -1,0 +1,116 @@
+name: Build Maven
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        description: "Version de Java"
+        required: true
+        type: string
+      environment:
+        description: "Environnement cible"
+        required: false
+        type: string
+        default: "dev"
+
+env:
+  MAVEN_OPTS: '-Xmx3072m -XX:+UseG1GC'
+
+jobs:
+  build:
+    name:  Build ${{ matrix.microservice }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        microservice:
+          - microservice1-mysql
+          - microservice2-mysql
+          - microservice3-mongodb
+    steps:
+      - name:  Checkout code
+        uses: actions/checkout@v4
+
+      - name:  Setup Java ${{ inputs.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ inputs.java-version }}
+          cache: 'maven'
+
+      - name:  Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
+
+      - name:  Vérifier pom.xml
+        working-directory: microservices/${{ matrix.microservice }}
+        run: |
+          if [ ! -f pom.xml ]; then
+            echo " Fichier pom.xml introuvable!"
+            exit 1
+          fi
+          echo " Fichier pom.xml trouvé"
+          cat pom.xml | grep -A 2 "<artifactId>"
+
+      - name:  Clean workspace
+        working-directory: microservices/${{ matrix.microservice }}
+        run: |
+          mvn clean
+          echo " Workspace nettoyé"
+
+      - name:  Compile
+        working-directory: microservices/${{ matrix.microservice }}
+        run: |
+          mvn compile -DskipTests
+          echo " Compilation réussie"
+
+      - name:  Run Unit Tests
+        working-directory: microservices/${{ matrix.microservice }}
+        run: |
+          mvn test
+          echo " Tests unitaires réussis"
+
+      - name:  Package JAR
+        working-directory: microservices/${{ matrix.microservice }}
+        run: |
+          mvn package -DskipTests
+          
+          # Vérifier que le JAR a été créé
+          if [ ! -f target/*.jar ]; then
+            echo " JAR non créé!"
+            exit 1
+          fi
+          
+          echo " JAR créé avec succès"
+          ls -lh target/*.jar
+
+      - name:  Afficher statistiques du build
+        working-directory: microservices/${{ matrix.microservice }}
+        run: |
+          echo "###  Build ${{ matrix.microservice }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:**  Succès" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Artefacts produits:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ls -lh target/*.jar >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name:  Upload JAR Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.microservice }}-jar
+          path: microservices/${{ matrix.microservice }}/target/*.jar
+          retention-days: 7
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.microservice }}-test-results
+          path: microservices/${{ matrix.microservice }}/target/surefire-reports/
+          retention-days: 7

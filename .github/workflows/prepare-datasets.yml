@@ -1,0 +1,114 @@
+name: Prepare Datasets
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Environnement cible"
+        required: true
+        type: string
+
+jobs:
+  prepare-mysql:
+    name:  Prepare MySQL Dataset
+    runs-on: ubuntu-latest
+    steps:
+      - name:  Checkout code
+        uses: actions/checkout@v4
+
+      - name:  Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name:  Install dependencies
+        run: |
+          pip install pymysql cryptography python-dotenv pyyaml
+
+      - name:  Download deployment info
+        uses: actions/download-artifact@v3
+        with:
+          pattern: deployment-info-microservice*-mysql
+          path: deployment-info/
+          merge-multiple: true
+
+      - name: 🔧 Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name:  Configure Kubernetes credentials
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name:  Prepare MySQL Dataset
+        env:
+          MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
+          MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
+          MYSQL_USER: ${{ secrets.MYSQL_USER }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          python ci-cd/scripts/prepare-mysql-dataset.py \
+            --environment ${{ inputs.environment }} \
+            --deployment-info deployment-info/
+
+      - name:  Dataset Summary
+        run: |
+          echo "### 🐬 MySQL Dataset Prepared" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Dataset de test créé pour l'environnement **${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
+
+  prepare-mongodb:
+    name:  Prepare MongoDB Dataset
+    runs-on: ubuntu-latest
+    steps:
+      - name:  Checkout code
+        uses: actions/checkout@v4
+
+      - name:  Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name:  Install dependencies
+        run: |
+          pip install pymongo python-dotenv pyyaml
+
+      - name:  Download deployment info
+        uses: actions/download-artifact@v3
+        with:
+          pattern: deployment-info-microservice*-mongodb
+          path: deployment-info/
+          merge-multiple: true
+
+      - name:  Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: 🔐 Configure Kubernetes credentials
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name:  Prepare MongoDB Dataset
+        env:
+          MONGO_HOST: ${{ secrets.MONGO_HOST }}
+          MONGO_PORT: ${{ secrets.MONGO_PORT }}
+          MONGO_USER: ${{ secrets.MONGO_USER }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          python ci-cd/scripts/prepare-mongodb-dataset.py \
+            --environment ${{ inputs.environment }} \
+            --deployment-info deployment-info/
+
+      - name:  Dataset Summary
+        run: |
+          echo "###  MongoDB Dataset Prepared" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Dataset de test créé pour l'environnement **${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
