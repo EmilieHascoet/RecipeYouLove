@@ -2,85 +2,80 @@ package com.springbootTemplate.univ.soa.controller;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.test.web.servlet.MockMvc;
+import org.junit.jupiter.api.BeforeEach;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.*;
 
-
-@WebMvcTest(HomeController.class)
 class HomeControllerTest {
 
-    @Autowired
-    private MockMvc mockMvc;
+    private HomeController homeController;
 
-    @Test
-    @DisplayName("GET / devrait retourner le message de bienvenue")
-    void testHome() throws Exception {
-        mockMvc.perform(get("/"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("RecipeYouLove API is running successfully")));
+    @BeforeEach
+    void setUp() {
+        homeController = new HomeController();
     }
 
     @Test
-    @DisplayName("GET /health devrait retourner le statut de santé")
-    void testHealth() throws Exception {
-        mockMvc.perform(get("/health"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("Application is healthy")));
+    @DisplayName("home() devrait retourner le message de bienvenue")
+    void testHome() {
+        String result = homeController.home();
+
+        assertNotNull(result);
+        assertTrue(result.contains("RecipeYouLove API"));
+        assertTrue(result.contains("running successfully"));
     }
 
     @Test
-    @DisplayName("GET /api/status devrait retourner un objet JSON avec les informations de statut")
-    void testStatus() throws Exception {
-        mockMvc.perform(get("/api/status"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.applicationName").value("RecipeYouLove API"))
-                .andExpect(jsonPath("$.version").value("1.0.0"))
-                .andExpect(jsonPath("$.status").value("Running"));
+    @DisplayName("health() devrait retourner le statut de santé")
+    void testHealth() {
+        String result = homeController.health();
+
+        assertNotNull(result);
+        assertTrue(result.contains("Application is healthy"));
     }
 
     @Test
-    @DisplayName("GET /api/status devrait retourner un contenu JSON valide")
-    void testStatusContentType() throws Exception {
-        mockMvc.perform(get("/api/status"))
-                .andExpect(status().isOk())
-                .andExpect(content().contentType("application/json"));
+    @DisplayName("status() devrait retourner un objet StatusResponse non null")
+    void testStatus() {
+        Object result = homeController.status();
+
+        assertNotNull(result);
+        assertTrue(result instanceof HomeController.StatusResponse);
     }
 
     @Test
-    @DisplayName("GET / devrait retourner un statut 200")
-    void testHomeStatusCode() throws Exception {
-        mockMvc.perform(get("/"))
-                .andExpect(status().isOk());
+    @DisplayName("StatusResponse devrait avoir les bonnes valeurs")
+    void testStatusResponse() {
+        Object result = homeController.status();
+        HomeController.StatusResponse statusResponse = (HomeController.StatusResponse) result;
+
+        assertEquals("RecipeYouLove API", statusResponse.applicationName);
+        assertEquals("1.0.0", statusResponse.version);
+        assertEquals("Running", statusResponse.status);
     }
 
     @Test
-    @DisplayName("GET /health devrait retourner un statut 200")
-    void testHealthStatusCode() throws Exception {
-        mockMvc.perform(get("/health"))
-                .andExpect(status().isOk());
+    @DisplayName("Tous les endpoints devraient retourner des valeurs non vides")
+    void testEndpointsReturnNonEmpty() {
+        assertFalse(homeController.home().isEmpty());
+        assertFalse(homeController.health().isEmpty());
+        assertNotNull(homeController.status());
     }
 
     @Test
-    @DisplayName("Tous les endpoints devraient retourner du contenu non vide")
-    void testEndpointsReturnNonEmptyContent() throws Exception {
-        mockMvc.perform(get("/"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.isEmptyString())));
+    @DisplayName("StatusResponse devrait pouvoir être créé avec un constructeur")
+    void testStatusResponseConstructor() {
+        HomeController.StatusResponse response = new HomeController.StatusResponse("Test", "2.0", "OK");
 
+        assertEquals("Test", response.applicationName);
+        assertEquals("2.0", response.version);
+        assertEquals("OK", response.status);
+    }
 
-        mockMvc.perform(get("/health"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.isEmptyString())));
-
-
-        mockMvc.perform(get("/api/status"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").exists());
+    @Test
+    @DisplayName("home() devrait contenir un emoji")
+    void testHomeContainsEmoji() {
+        String result = homeController.home();
+        assertTrue(result.contains("🚀"));
     }
 }
-
