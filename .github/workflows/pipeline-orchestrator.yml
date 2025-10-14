@@ -13,6 +13,11 @@ on:
       - develop
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
 env:
   JAVA_VERSION: '21'
   REGISTRY: ghcr.io
