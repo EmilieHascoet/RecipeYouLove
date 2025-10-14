@@ -13,47 +13,70 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-docker:
-    name:  Build ${{ matrix.microservice }}
+  detect-structure:
+    name: 🔍 Detect Project Structure
+    runs-on: ubuntu-latest
+    outputs:
+      is-parent: ${{ steps.detect.outputs.is-parent }}
+      microservices: ${{ steps.detect.outputs.microservices }}
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔍 Detect structure
+        id: detect
+        run: |
+          if [ -d "microservices" ]; then
+            echo "is-parent=true" >> $GITHUB_OUTPUT
+            MS_LIST=$(ls -d microservices/*/ 2>/dev/null | xargs -n 1 basename | jq -R -s -c 'split("\n")[:-1]')
+            echo "microservices=$MS_LIST" >> $GITHUB_OUTPUT
+            echo "🔍 Structure PARENT détectée"
+          else
+            echo "is-parent=false" >> $GITHUB_OUTPUT
+            echo "microservices=[\".\"]" >> $GITHUB_OUTPUT
+            echo "🔍 Structure MICROSERVICE détectée"
+          fi
+
+  build-parent:
+    name: 🐳 Build ${{ matrix.microservice }}
+    needs: detect-structure
+    if: needs.detect-structure.outputs.is-parent == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        microservice:
-          - microservice1-mysql
-          - microservice2-mysql
-          - microservice3-mongodb
+        microservice: ${{ fromJson(needs.detect-structure.outputs.microservices) }}
     permissions:
       contents: read
       packages: write
     steps:
-      - name:  Checkout code
+      - name: 📥 Checkout code
         uses: actions/checkout@v4
 
-      - name:  Download JAR Artifact
+      - name: 📥 Download JAR Artifact
         uses: actions/download-artifact@v3
         with:
           name: ${{ matrix.microservice }}-jar
           path: microservices/${{ matrix.microservice }}/target/
 
-      - name:  Vérifier JAR téléchargé
+      - name: 🔍 Vérifier JAR téléchargé
         working-directory: microservices/${{ matrix.microservice }}
         run: |
           ls -lh target/
           if [ ! -f target/*.jar ]; then
-            echo " JAR non trouvé!"
+            echo "❌ JAR non trouvé!"
             exit 1
           fi
-          echo " JAR trouvé"
+          echo "✅ JAR trouvé"
 
-      - name:  Login to GitHub Container Registry
+      - name: 🔐 Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name:  Extract Docker metadata
+      - name: 📋 Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -65,10 +88,10 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
 
-      - name:  Set up Docker Buildx
+      - name: 🔧 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name:  Build and Push Docker Image
+      - name: 🐳 Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
           context: microservices/${{ matrix.microservice }}
@@ -82,9 +105,9 @@ jobs:
             JAR_FILE=target/*.jar
             JAVA_VERSION=21
 
-      - name:  Image Summary
+      - name: 📊 Image Summary
         run: |
-          echo "###  Docker Image Built - ${{ matrix.microservice }}" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐳 Docker Image Built - ${{ matrix.microservice }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Registry:** \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -93,6 +116,76 @@ jobs:
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-      - name:  Export image digest
+  build-microservice:
+    name: 🐳 Build Docker Image
+    needs: detect-structure
+    if: needs.detect-structure.outputs.is-parent == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📥 Download JAR Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: application-jar
+          path: target/
+
+      - name: 🔍 Vérifier JAR téléchargé
         run: |
-          echo "IMAGE_DIGEST=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.microservice }}:${{ inputs.image-tag }}" >> $GITHUB_ENV
+          ls -lh target/
+          if [ ! -f target/*.jar ]; then
+            echo "❌ JAR non trouvé!"
+            exit 1
+          fi
+          echo "✅ JAR trouvé"
+
+      - name: 🔐 Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📋 Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ inputs.image-tag }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
+            type=ref,event=pr
+
+      - name: 🔧 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🐳 Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            JAR_FILE=target/*.jar
+            JAVA_VERSION=21
+
+      - name: 📊 Image Summary
+        run: |
+          echo "### 🐳 Docker Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** \`${{ env.REGISTRY }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

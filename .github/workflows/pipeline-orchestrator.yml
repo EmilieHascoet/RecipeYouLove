@@ -103,20 +103,22 @@ jobs:
   # ========================================
   # 9. Run Integration Tests (Newman)
   # ========================================
-  run-integration-tests:
-    needs: prepare-datasets
-    uses: ./.github/workflows/run-integration-tests.yml
-    with:
-      environment: ${{ needs.config-vars.outputs.environment }}
-    secrets: inherit
+  # TODO: Décommenter quand le workflow run-integration-tests.yml sera créé
+  # run-integration-tests:
+  #   needs: prepare-datasets
+  #   uses: ./.github/workflows/run-integration-tests.yml
+  #   with:
+  #     environment: ${{ needs.config-vars.outputs.environment }}
+  #   secrets: inherit
 
   # ========================================
   # 10. Cleanup Jobs
   # ========================================
-  cleanup-jobs:
-    needs: [run-integration-tests]
-    if: always()
-    uses: ./.github/workflows/cleanup-jobs.yml
-    with:
-      environment: ${{ needs.config-vars.outputs.environment }}
-    secrets: inherit
+  # TODO: Décommenter quand le workflow cleanup-jobs.yml sera créé
+  # cleanup-jobs:
+  #   needs: [run-integration-tests]
+  #   if: always()
+  #   uses: ./.github/workflows/cleanup-jobs.yml
+  #   with:
+  #     environment: ${{ needs.config-vars.outputs.environment }}
+  #   secrets: inherit

@@ -1,4 +1,4 @@
-name:  Deploy to Kubernetes
+name: 🚀 Deploy to Kubernetes
 
 on:
   workflow_call:
@@ -17,18 +17,41 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  deploy:
-    name:  Deploy ${{ matrix.microservice }} to ${{ inputs.environment }}
+  detect-structure:
+    name: 🔍 Detect Project Structure
+    runs-on: ubuntu-latest
+    outputs:
+      is-parent: ${{ steps.detect.outputs.is-parent }}
+      microservices: ${{ steps.detect.outputs.microservices }}
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔍 Detect structure
+        id: detect
+        run: |
+          if [ -d "microservices" ]; then
+            echo "is-parent=true" >> $GITHUB_OUTPUT
+            MS_LIST=$(ls -d microservices/*/ 2>/dev/null | xargs -n 1 basename | jq -R -s -c 'split("\n")[:-1]')
+            echo "microservices=$MS_LIST" >> $GITHUB_OUTPUT
+            echo "🔍 Structure PARENT détectée"
+          else
+            echo "is-parent=false" >> $GITHUB_OUTPUT
+            echo "microservices=[\".\"]" >> $GITHUB_OUTPUT
+            echo "🔍 Structure MICROSERVICE détectée"
+          fi
+
+  deploy-parent:
+    name: 🚀 Deploy ${{ matrix.microservice }} to ${{ inputs.environment }}
+    needs: detect-structure
+    if: needs.detect-structure.outputs.is-parent == 'true'
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.environment }}
     strategy:
       fail-fast: false
       matrix:
-        microservice:
-          - microservice1-mysql
-          - microservice2-mysql
-          - microservice3-mongodb
+        microservice: ${{ fromJson(needs.detect-structure.outputs.microservices) }}
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
@@ -43,78 +66,54 @@ jobs:
         with:
           version: 'v1.28.0'
 
-      - name:  Configure Kubernetes credentials
+      - name: 🔐 Configure Kubernetes credentials
         env:
           KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
         run: |
           mkdir -p ~/.kube
           echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
-          
-          echo " Kubeconfig configuré"
           kubectl cluster-info
 
-      - name:  Déterminer le namespace
+      - name: 📋 Déterminer le namespace
         id: namespace
         run: |
           case "${{ inputs.environment }}" in
-            production)
-              NAMESPACE="prod"
-              ;;
-            staging)
-              NAMESPACE="staging"
-              ;;
-            dev)
-              NAMESPACE="dev"
-              ;;
-            *)
-              NAMESPACE="dev"
-              ;;
+            production) NAMESPACE="prod" ;;
+            staging) NAMESPACE="staging" ;;
+            dev) NAMESPACE="dev" ;;
+            *) NAMESPACE="dev" ;;
           esac
-          
           echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
-          echo " Namespace: ${NAMESPACE}"
 
-      - name:  Vérifier/Créer namespace
+      - name: 📦 Vérifier/Créer namespace
         run: |
           NAMESPACE="${{ steps.namespace.outputs.namespace }}"
-          
           if ! kubectl get namespace $NAMESPACE &> /dev/null; then
-            echo "📦 Création du namespace $NAMESPACE..."
             kubectl create namespace $NAMESPACE
-          else
-            echo " Namespace $NAMESPACE existe déjà"
           fi
 
       - name: 🔐 Create Image Pull Secret
         run: |
           NAMESPACE="${{ steps.namespace.outputs.namespace }}"
-          
           kubectl create secret docker-registry ghcr-secret \
             --docker-server=${{ env.REGISTRY }} \
             --docker-username=${{ github.actor }} \
             --docker-password=${{ secrets.GITHUB_TOKEN }} \
             --namespace=$NAMESPACE \
             --dry-run=client -o yaml | kubectl apply -f -
-          
-          echo " Image pull secret créé"
 
-      - name:  Deploy with Helm
+      - name: 🚀 Deploy with Helm
         working-directory: helm-charts/microservice-template
         run: |
           NAMESPACE="${{ steps.namespace.outputs.namespace }}"
           IMAGE_TAG="${{ inputs.image-tag }}"
           MICROSERVICE="${{ matrix.microservice }}"
-          
-          # Déterminer le fichier values selon l'environnement
           VALUES_FILE="values-${{ inputs.environment }}.yaml"
           
           if [ ! -f "$VALUES_FILE" ]; then
-            echo " Fichier $VALUES_FILE non trouvé, utilisation de values.yaml"
             VALUES_FILE="values.yaml"
           fi
-          
-          echo " Déploiement de $MICROSERVICE dans $NAMESPACE..."
           
           helm upgrade --install $MICROSERVICE . \
             --namespace $NAMESPACE \
@@ -126,100 +125,112 @@ jobs:
             --set fullnameOverride=$MICROSERVICE \
             --wait \
             --timeout 5m
-          
-          echo " Déploiement terminé"
 
-      - name:  Vérifier le déploiement
+      - name: 🔍 Vérifier le déploiement
         run: |
           NAMESPACE="${{ steps.namespace.outputs.namespace }}"
           MICROSERVICE="${{ matrix.microservice }}"
-          
-          echo " Vérification du déploiement..."
-          
-          # Attendre que les pods soient prêts
-          kubectl wait --for=condition=ready pod \
-            -l app=$MICROSERVICE \
-            --namespace=$NAMESPACE \
-            --timeout=300s
-          
-          # Afficher les pods
+          kubectl wait --for=condition=ready pod -l app=$MICROSERVICE --namespace=$NAMESPACE --timeout=300s
           kubectl get pods -n $NAMESPACE -l app=$MICROSERVICE
-          
-          # Afficher les services
-          kubectl get svc -n $NAMESPACE -l app=$MICROSERVICE
-          
-          echo " Déploiement vérifié avec succès"
 
-      - name:  Health Check
-        run: |
-          NAMESPACE="${{ steps.namespace.outputs.namespace }}"
-          MICROSERVICE="${{ matrix.microservice }}"
-          
-          # Récupérer le service
-          SERVICE_NAME=$(kubectl get svc -n $NAMESPACE -l app=$MICROSERVICE -o jsonpath='{.items[0].metadata.name}')
-          
-          if [ -z "$SERVICE_NAME" ]; then
-            echo " Service non trouvé"
-            exit 1
-          fi
-          
-          # Port-forward temporaire pour health check
-          kubectl port-forward svc/$SERVICE_NAME 8080:8080 -n $NAMESPACE &
-          PF_PID=$!
-          
-          sleep 5
-          
-          # Test health endpoint
-          if curl -f http://localhost:8080/actuator/health &> /dev/null; then
-            echo " Health check réussi"
-          else
-            echo "⚠ Health check échoué (le service démarre peut-être encore)"
-          fi
-          
-          kill $PF_PID
+  deploy-microservice:
+    name: 🚀 Deploy to ${{ inputs.environment }}
+    needs: detect-structure
+    if: needs.detect-structure.outputs.is-parent == 'false'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
-      - name: 📊 Deployment Summary
-        run: |
-          NAMESPACE="${{ steps.namespace.outputs.namespace }}"
-          MICROSERVICE="${{ matrix.microservice }}"
-          
-          echo "###  Déploiement - $MICROSERVICE" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Paramètre | Valeur |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environnement | **${{ inputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Namespace | \`$NAMESPACE\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image Tag | \`${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Pods:**" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          kubectl get pods -n $NAMESPACE -l app=$MICROSERVICE >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-      - name:  Save deployment info
-        run: |
-          NAMESPACE="${{ steps.namespace.outputs.namespace }}"
-          MICROSERVICE="${{ matrix.microservice }}"
-          
-          # Sauvegarder les infos pour les tests d'intégration
-          mkdir -p deployment-info
-          
-          SERVICE_NAME=$(kubectl get svc -n $NAMESPACE -l app=$MICROSERVICE -o jsonpath='{.items[0].metadata.name}')
-          SERVICE_PORT=$(kubectl get svc -n $NAMESPACE -l app=$MICROSERVICE -o jsonpath='{.items[0].spec.ports[0].port}')
-          
-          cat > deployment-info/$MICROSERVICE.json <<EOF
-          {
-            "microservice": "$MICROSERVICE",
-            "namespace": "$NAMESPACE",
-            "service_name": "$SERVICE_NAME",
-            "service_port": "$SERVICE_PORT",
-            "image_tag": "${{ inputs.image-tag }}"
-          }
-          EOF
-
-      - name:  Upload deployment info
-        uses: actions/upload-artifact@v3
+      - name: 🔧 Setup Helm
+        uses: azure/setup-helm@v3
         with:
-          name: deployment-info-${{ matrix.microservice }}
-          path: deployment-info/${{ matrix.microservice }}.json
-          retention-days: 1
+          version: 'v3.13.0'
+
+      - name: 🔧 Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: 🔐 Configure Kubernetes credentials
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+          kubectl cluster-info
+
+      - name: 📋 Déterminer le namespace et app name
+        id: config
+        run: |
+          case "${{ inputs.environment }}" in
+            production) NAMESPACE="prod" ;;
+            staging) NAMESPACE="staging" ;;
+            dev) NAMESPACE="dev" ;;
+            *) NAMESPACE="dev" ;;
+          esac
+          
+          # Extraire le nom depuis pom.xml
+          APP_NAME=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout 2>/dev/null || echo "application")
+          
+          echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
+          echo "app_name=${APP_NAME}" >> $GITHUB_OUTPUT
+
+      - name: 📦 Vérifier/Créer namespace
+        run: |
+          NAMESPACE="${{ steps.config.outputs.namespace }}"
+          if ! kubectl get namespace $NAMESPACE &> /dev/null; then
+            kubectl create namespace $NAMESPACE
+          fi
+
+      - name: 🔐 Create Image Pull Secret
+        run: |
+          NAMESPACE="${{ steps.config.outputs.namespace }}"
+          kubectl create secret docker-registry ghcr-secret \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --namespace=$NAMESPACE \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: 🚀 Deploy with Helm
+        working-directory: helm-charts
+        run: |
+          NAMESPACE="${{ steps.config.outputs.namespace }}"
+          APP_NAME="${{ steps.config.outputs.app_name }}"
+          IMAGE_TAG="${{ inputs.image-tag }}"
+          
+          # Chercher le dossier helm (peut être microservice-template ou autre)
+          if [ -d "microservice-template" ]; then
+            cd microservice-template
+          elif [ -d "$APP_NAME" ]; then
+            cd "$APP_NAME"
+          else
+            cd $(ls -d */ | head -n 1)
+          fi
+          
+          VALUES_FILE="values-${{ inputs.environment }}.yaml"
+          if [ ! -f "$VALUES_FILE" ]; then
+            VALUES_FILE="values.yaml"
+          fi
+          
+          helm upgrade --install $APP_NAME . \
+            --namespace $NAMESPACE \
+            --create-namespace \
+            --values $VALUES_FILE \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+            --set image.tag=$IMAGE_TAG \
+            --set nameOverride=$APP_NAME \
+            --set fullnameOverride=$APP_NAME \
+            --wait \
+            --timeout 5m
+
+      - name: 🔍 Vérifier le déploiement
+        run: |
+          NAMESPACE="${{ steps.config.outputs.namespace }}"
+          APP_NAME="${{ steps.config.outputs.app_name }}"
+          kubectl wait --for=condition=ready pod -l app=$APP_NAME --namespace=$NAMESPACE --timeout=300s
+          kubectl get pods -n $NAMESPACE -l app=$APP_NAME

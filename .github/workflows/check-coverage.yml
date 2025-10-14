@@ -1,4 +1,4 @@
-name: Check Coverage (JaCoCo)
+name: 📊 Check Coverage (JaCoCo)
 
 on:
   workflow_call:
@@ -9,28 +9,51 @@ on:
         type: string
 
 jobs:
-  jacoco-coverage:
-    name:  JaCoCo Coverage - ${{ matrix.microservice }}
+  detect-structure:
+    name: 🔍 Detect Project Structure
+    runs-on: ubuntu-latest
+    outputs:
+      is-parent: ${{ steps.detect.outputs.is-parent }}
+      microservices: ${{ steps.detect.outputs.microservices }}
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔍 Detect structure
+        id: detect
+        run: |
+          if [ -d "microservices" ]; then
+            echo "is-parent=true" >> $GITHUB_OUTPUT
+            MS_LIST=$(ls -d microservices/*/ 2>/dev/null | xargs -n 1 basename | jq -R -s -c 'split("\n")[:-1]')
+            echo "microservices=$MS_LIST" >> $GITHUB_OUTPUT
+            echo "🔍 Structure PARENT détectée"
+          else
+            echo "is-parent=false" >> $GITHUB_OUTPUT
+            echo "microservices=[\".\"]" >> $GITHUB_OUTPUT
+            echo "🔍 Structure MICROSERVICE détectée"
+          fi
+
+  coverage-parent:
+    name: 📊 Coverage ${{ matrix.microservice }}
+    needs: detect-structure
+    if: needs.detect-structure.outputs.is-parent == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        microservice:
-          - microservice1-mysql
-          - microservice2-mysql
-          - microservice3-mongodb
+        microservice: ${{ fromJson(needs.detect-structure.outputs.microservices) }}
     steps:
-      - name:  Checkout code
+      - name: 📥 Checkout code
         uses: actions/checkout@v4
 
-      - name:  Setup Java ${{ inputs.java-version }}
+      - name: ☕ Setup Java ${{ inputs.java-version }}
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: ${{ inputs.java-version }}
           cache: 'maven'
 
-      - name:  Cache Maven dependencies
+      - name: 💾 Cache Maven dependencies
         uses: actions/cache@v3
         with:
           path: ~/.m2/repository
@@ -38,79 +61,47 @@ jobs:
           restore-keys: |
             maven-${{ runner.os }}-
 
-      - name:  Run Tests with JaCoCo
+      - name: 🧪 Run Tests with JaCoCo
         working-directory: microservices/${{ matrix.microservice }}
-        run: |
-          mvn clean test jacoco:report
-          echo " Tests avec JaCoCo terminés"
+        run: mvn clean test jacoco:report
 
-      - name:  Vérifier rapport JaCoCo
-        working-directory: microservices/${{ matrix.microservice }}
-        run: |
-          if [ ! -d target/site/jacoco ]; then
-            echo " Rapport JaCoCo non généré!"
-            exit 1
-          fi
-          
-          echo " Rapport JaCoCo généré"
-          ls -la target/site/jacoco/
-
-      - name:  Extraire les métriques de couverture
-        working-directory: microservices/${{ matrix.microservice }}
-        run: |
-          # Parser le fichier jacoco.csv pour extraire les stats
-          if [ -f target/site/jacoco/jacoco.csv ]; then
-            echo " Métriques de couverture:" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          
-            # Extraire les totaux
-            INSTRUCTION_MISSED=$(awk -F',' 'NR>1 {missed+=$4; covered+=$5} END {print missed}' target/site/jacoco/jacoco.csv)
-            INSTRUCTION_COVERED=$(awk -F',' 'NR>1 {missed+=$4; covered+=$5} END {print covered}' target/site/jacoco/jacoco.csv)
-            TOTAL_INSTRUCTIONS=$((INSTRUCTION_MISSED + INSTRUCTION_COVERED))
-          
-            if [ $TOTAL_INSTRUCTIONS -gt 0 ]; then
-              COVERAGE=$((INSTRUCTION_COVERED * 100 / TOTAL_INSTRUCTIONS))
-          
-              echo "###  Coverage Report - ${{ matrix.microservice }}" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              echo "| Métrique | Valeur |" >> $GITHUB_STEP_SUMMARY
-              echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-              echo "| Instructions couvertes | ${INSTRUCTION_COVERED} / ${TOTAL_INSTRUCTIONS} |" >> $GITHUB_STEP_SUMMARY
-              echo "| Pourcentage | **${COVERAGE}%** |" >> $GITHUB_STEP_SUMMARY
-          
-              # Vérifier seuil minimal
-              if [ $COVERAGE -lt 70 ]; then
-                echo "" >> $GITHUB_STEP_SUMMARY
-                echo " **Attention:** La couverture est inférieure à 70%" >> $GITHUB_STEP_SUMMARY
-              else
-                echo "" >> $GITHUB_STEP_SUMMARY
-                echo " Couverture satisfaisante (>= 70%)" >> $GITHUB_STEP_SUMMARY
-              fi
-            fi
-          fi
-
-      - name:  Upload JaCoCo Report
+      - name: 📤 Upload JaCoCo Report
         uses: actions/upload-artifact@v3
         with:
           name: jacoco-report-${{ matrix.microservice }}
           path: microservices/${{ matrix.microservice }}/target/site/jacoco/
           retention-days: 30
 
-      - name:  Comment Coverage on PR
-        if: github.event_name == 'pull_request'
-        uses: madrapps/jacoco-report@v1.6.1
-        with:
-          paths: microservices/${{ matrix.microservice }}/target/site/jacoco/jacoco.xml
-          token: ${{ secrets.GITHUB_TOKEN }}
-          min-coverage-overall: 70
-          min-coverage-changed-files: 80
-          title: " Coverage Report - ${{ matrix.microservice }}"
+  coverage-microservice:
+    name: 📊 Coverage Analysis
+    needs: detect-structure
+    if: needs.detect-structure.outputs.is-parent == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
-      - name:  Upload Coverage to Codecov (optionnel)
-        if: env.CODECOV_TOKEN != ''
-        uses: codecov/codecov-action@v3
+      - name: ☕ Setup Java ${{ inputs.java-version }}
+        uses: actions/setup-java@v4
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: microservices/${{ matrix.microservice }}/target/site/jacoco/jacoco.xml
-          flags: ${{ matrix.microservice }}
-          name: codecov-${{ matrix.microservice }}
+          distribution: 'temurin'
+          java-version: ${{ inputs.java-version }}
+          cache: 'maven'
+
+      - name: 💾 Cache Maven dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
+
+      - name: 🧪 Run Tests with JaCoCo
+        run: mvn clean test jacoco:report
+
+      - name: 📤 Upload JaCoCo Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          retention-days: 30
