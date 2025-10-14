@@ -65,6 +65,47 @@ jobs:
         working-directory: microservices/${{ matrix.microservice }}
         run: mvn clean test jacoco:report
 
+      - name: 📊 Check Coverage Threshold
+        working-directory: microservices/${{ matrix.microservice }}
+        run: |
+          # Vérifier que le rapport JaCoCo existe
+          if [ ! -f target/site/jacoco/index.html ]; then
+            echo "❌ Rapport JaCoCo non trouvé!"
+            exit 1
+          fi
+          
+          # Extraire le pourcentage de couverture depuis le fichier CSV
+          if [ -f target/site/jacoco/jacoco.csv ]; then
+            # Calculer la couverture des instructions
+            INSTRUCTION_MISSED=$(awk -F',' 'NR>1 {missed+=$4} END {print missed}' target/site/jacoco/jacoco.csv)
+            INSTRUCTION_COVERED=$(awk -F',' 'NR>1 {covered+=$5} END {print covered}' target/site/jacoco/jacoco.csv)
+            TOTAL_INSTRUCTIONS=$((INSTRUCTION_MISSED + INSTRUCTION_COVERED))
+            
+            if [ $TOTAL_INSTRUCTIONS -gt 0 ]; then
+              COVERAGE=$((INSTRUCTION_COVERED * 100 / TOTAL_INSTRUCTIONS))
+              
+              echo "📊 Couverture de code: ${COVERAGE}%"
+              echo "   - Instructions couvertes: ${INSTRUCTION_COVERED}"
+              echo "   - Instructions totales: ${TOTAL_INSTRUCTIONS}"
+              
+              if [ $COVERAGE -lt 60 ]; then
+                echo ""
+                echo "❌ ÉCHEC: La couverture de code (${COVERAGE}%) est inférieure au seuil requis de 60%"
+                echo "   Il manque $((60 - COVERAGE))% de couverture pour atteindre l'objectif"
+                exit 1
+              else
+                echo ""
+                echo "✅ SUCCÈS: La couverture de code (${COVERAGE}%) dépasse le seuil requis de 60%"
+              fi
+            else
+              echo "⚠️ Aucune instruction trouvée pour calculer la couverture"
+              exit 1
+            fi
+          else
+            echo "❌ Fichier jacoco.csv non trouvé!"
+            exit 1
+          fi
+
       - name: 📤 Upload JaCoCo Report
         uses: actions/upload-artifact@v4
         with:
@@ -98,6 +139,46 @@ jobs:
 
       - name: 🧪 Run Tests with JaCoCo
         run: mvn clean test jacoco:report
+
+      - name: 📊 Check Coverage Threshold
+        run: |
+          # Vérifier que le rapport JaCoCo existe
+          if [ ! -f target/site/jacoco/index.html ]; then
+            echo "❌ Rapport JaCoCo non trouvé!"
+            exit 1
+          fi
+          
+          # Extraire le pourcentage de couverture depuis le fichier CSV
+          if [ -f target/site/jacoco/jacoco.csv ]; then
+            # Calculer la couverture des instructions
+            INSTRUCTION_MISSED=$(awk -F',' 'NR>1 {missed+=$4} END {print missed}' target/site/jacoco/jacoco.csv)
+            INSTRUCTION_COVERED=$(awk -F',' 'NR>1 {covered+=$5} END {print covered}' target/site/jacoco/jacoco.csv)
+            TOTAL_INSTRUCTIONS=$((INSTRUCTION_MISSED + INSTRUCTION_COVERED))
+            
+            if [ $TOTAL_INSTRUCTIONS -gt 0 ]; then
+              COVERAGE=$((INSTRUCTION_COVERED * 100 / TOTAL_INSTRUCTIONS))
+              
+              echo "📊 Couverture de code: ${COVERAGE}%"
+              echo "   - Instructions couvertes: ${INSTRUCTION_COVERED}"
+              echo "   - Instructions totales: ${TOTAL_INSTRUCTIONS}"
+              
+              if [ $COVERAGE -lt 60 ]; then
+                echo ""
+                echo "❌ ÉCHEC: La couverture de code (${COVERAGE}%) est inférieure au seuil requis de 60%"
+                echo "   Il manque $((60 - COVERAGE))% de couverture pour atteindre l'objectif"
+                exit 1
+              else
+                echo ""
+                echo "✅ SUCCÈS: La couverture de code (${COVERAGE}%) dépasse le seuil requis de 60%"
+              fi
+            else
+              echo "⚠️ Aucune instruction trouvée pour calculer la couverture"
+              exit 1
+            fi
+          else
+            echo "❌ Fichier jacoco.csv non trouvé!"
+            exit 1
+          fi
 
       - name: 📤 Upload JaCoCo Report
         uses: actions/upload-artifact@v4
