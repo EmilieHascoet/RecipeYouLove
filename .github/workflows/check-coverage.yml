@@ -66,7 +66,7 @@ jobs:
         run: mvn clean test jacoco:report
 
       - name: 📤 Upload JaCoCo Report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: jacoco-report-${{ matrix.microservice }}
           path: microservices/${{ matrix.microservice }}/target/site/jacoco/
@@ -100,7 +100,7 @@ jobs:
         run: mvn clean test jacoco:report
 
       - name: 📤 Upload JaCoCo Report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
           path: target/site/jacoco/

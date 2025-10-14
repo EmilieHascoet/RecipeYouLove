@@ -25,12 +25,11 @@ jobs:
         run: |
           pip install pymysql cryptography python-dotenv pyyaml
 
-      - name:  Download deployment info
-        uses: actions/download-artifact@v3
+      - name: 📥 Download deployment info
+        uses: actions/download-artifact@v4
         with:
-          pattern: deployment-info-microservice*-mysql
+          name: deployment-info
           path: deployment-info/
-          merge-multiple: true
 
       - name: 🔧 Setup kubectl
         uses: azure/setup-kubectl@v3
@@ -77,12 +76,11 @@ jobs:
         run: |
           pip install pymongo python-dotenv pyyaml
 
-      - name:  Download deployment info
-        uses: actions/download-artifact@v3
+      - name: 📥 Download deployment info
+        uses: actions/download-artifact@v4
         with:
-          pattern: deployment-info-microservice*-mongodb
+          name: deployment-info
           path: deployment-info/
-          merge-multiple: true
 
       - name:  Setup kubectl
         uses: azure/setup-kubectl@v3

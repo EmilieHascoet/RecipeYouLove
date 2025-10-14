@@ -133,6 +133,34 @@ jobs:
           kubectl wait --for=condition=ready pod -l app=$MICROSERVICE --namespace=$NAMESPACE --timeout=300s
           kubectl get pods -n $NAMESPACE -l app=$MICROSERVICE
 
+      - name: 💾 Save deployment info
+        run: |
+          NAMESPACE="${{ steps.namespace.outputs.namespace }}"
+          MICROSERVICE="${{ matrix.microservice }}"
+          
+          # Sauvegarder les infos pour les tests d'intégration
+          mkdir -p deployment-info
+          
+          SERVICE_NAME=$(kubectl get svc -n $NAMESPACE -l app=$MICROSERVICE -o jsonpath='{.items[0].metadata.name}')
+          SERVICE_PORT=$(kubectl get svc -n $NAMESPACE -l app=$MICROSERVICE -o jsonpath='{.items[0].spec.ports[0].port}')
+          
+          cat > deployment-info/$MICROSERVICE.json <<EOF
+          {
+            "microservice": "$MICROSERVICE",
+            "namespace": "$NAMESPACE",
+            "service_name": "$SERVICE_NAME",
+            "service_port": "$SERVICE_PORT",
+            "image_tag": "${{ inputs.image-tag }}"
+          }
+          EOF
+
+      - name: 📤 Upload deployment info
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-info-${{ matrix.microservice }}
+          path: deployment-info/${{ matrix.microservice }}.json
+          retention-days: 1
+
   deploy-microservice:
     name: 🚀 Deploy to ${{ inputs.environment }}
     needs: detect-structure
@@ -234,3 +262,31 @@ jobs:
           APP_NAME="${{ steps.config.outputs.app_name }}"
           kubectl wait --for=condition=ready pod -l app=$APP_NAME --namespace=$NAMESPACE --timeout=300s
           kubectl get pods -n $NAMESPACE -l app=$APP_NAME
+
+      - name: 💾 Save deployment info
+        run: |
+          NAMESPACE="${{ steps.config.outputs.namespace }}"
+          APP_NAME="${{ steps.config.outputs.app_name }}"
+          
+          # Sauvegarder les infos pour les tests d'intégration
+          mkdir -p deployment-info
+          
+          SERVICE_NAME=$(kubectl get svc -n $NAMESPACE -l app=$APP_NAME -o jsonpath='{.items[0].metadata.name}')
+          SERVICE_PORT=$(kubectl get svc -n $NAMESPACE -l app=$APP_NAME -o jsonpath='{.items[0].spec.ports[0].port}')
+          
+          cat > deployment-info/app.json <<EOF
+          {
+            "application": "$APP_NAME",
+            "namespace": "$NAMESPACE",
+            "service_name": "$SERVICE_NAME",
+            "service_port": "$SERVICE_PORT",
+            "image_tag": "${{ inputs.image-tag }}"
+          }
+          EOF
+
+      - name: 📤 Upload deployment info
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-info
+          path: deployment-info/app.json
+          retention-days: 1
