@@ -25,7 +25,7 @@ public class DatabaseController {
     public Map<String, Object> testDatabaseConnections() {
         Map<String, Object> result = new HashMap<>();
 
-        // Test MySQL connection
+
         try {
             Connection connection = dataSource.getConnection();
             connection.close();
@@ -34,7 +34,6 @@ public class DatabaseController {
             result.put("mysql", "❌ MySQL connection failed: " + e.getMessage());
         }
 
-        // Test MongoDB connection
         try {
             mongoTemplate.getCollection("test");
             result.put("mongodb", "✅ MongoDB connection successful");
