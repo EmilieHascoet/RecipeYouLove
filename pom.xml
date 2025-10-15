@@ -114,6 +114,13 @@
 						<goals>
 							<goal>report</goal>
 						</goals>
+						<configuration>
+							<excludes>
+								<exclude>**/config/**</exclude>
+								<exclude>**/Application.class</exclude>
+								<exclude>**/*$*.class</exclude>
+							</excludes>
+						</configuration>
 					</execution>
 					<execution>
 						<id>check</id>
@@ -133,6 +140,11 @@
 									</limits>
 								</rule>
 							</rules>
+							<excludes>
+								<exclude>**/config/**</exclude>
+								<exclude>**/Application.class</exclude>
+								<exclude>**/*$*.class</exclude>
+							</excludes>
 						</configuration>
 					</execution>
 				</executions>

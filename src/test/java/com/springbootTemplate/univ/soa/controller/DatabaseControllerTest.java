@@ -33,12 +33,10 @@ class DatabaseControllerTest {
     void setUp() {
         MockitoAnnotations.openMocks(this);
         databaseController = new DatabaseController();
-        // Injection manuelle des mocks (pas de Spring)
         setField(databaseController, "dataSource", dataSource);
         setField(databaseController, "mongoTemplate", mongoTemplate);
     }
 
-    // Helper pour injecter les champs privés
     private void setField(Object target, String fieldName, Object value) {
         try {
             var field = target.getClass().getDeclaredField(fieldName);
@@ -52,17 +50,16 @@ class DatabaseControllerTest {
     @Test
     @DisplayName("testDatabaseConnections devrait retourner succès pour MySQL et MongoDB")
     void testDatabaseConnections_Success() throws SQLException {
-        // Arrange
         when(dataSource.getConnection()).thenReturn(connection);
         doNothing().when(connection).close();
         when(mongoTemplate.getCollection("test")).thenReturn(null);
 
 
-        // Act
+
         Map<String, Object> result = databaseController.testDatabaseConnections();
 
 
-        // Assert
+
         assertNotNull(result);
         assertEquals(2, result.size());
         assertTrue(result.get("mysql").toString().contains("successful"));

@@ -32,10 +32,10 @@ public class DotenvEnvironmentPostProcessor implements EnvironmentPostProcessor 
             MapPropertySource propertySource = new MapPropertySource("dotenv-properties", envProperties);
             environment.getPropertySources().addFirst(propertySource);
 
-            logger.info("✅ Fichier .env chargé avec succès - " + envProperties.size() + " variables trouvées");
+            logger.info("Fichier .env chargé avec succès - " + envProperties.size() + " variables trouvées");
 
         } catch (Exception e) {
-            logger.severe("❌ Erreur lors du chargement du fichier .env : " + e.getMessage());
+            logger.severe("Erreur lors du chargement du fichier .env : " + e.getMessage());
         }
     }
 }
