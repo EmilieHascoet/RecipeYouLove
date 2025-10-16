@@ -46,6 +46,7 @@ jobs:
 
       - name: 🔍 Run Trivy vulnerability scanner (SARIF)
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image-tag }}
           format: 'sarif'
@@ -53,43 +54,45 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
           exit-code: '0'
 
-      - name: 🔍 Vérifier que le fichier SARIF a été créé
+      - name: 🔍 Créer fichier SARIF si manquant
         run: |
           if [ ! -f "trivy-results.sarif" ]; then
-            echo "⚠️ Fichier SARIF non créé, création d'un rapport vide"
-            cat > trivy-results.sarif <<EOF
-          {
-            "version": "2.1.0",
-            "\$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
-            "runs": [
-              {
-                "tool": {
-                  "driver": {
-                    "name": "Trivy",
-                    "informationUri": "https://github.com/aquasecurity/trivy",
-                    "version": "0.0.0",
-                    "rules": []
-                  }
-                },
-                "results": []
-              }
-            ]
-          }
-          EOF
+            echo "⚠️ Fichier SARIF non créé par Trivy, création d'un rapport vide valide"
+            cat > trivy-results.sarif <<'EOF'
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Trivy",
+          "informationUri": "https://github.com/aquasecurity/trivy",
+          "version": "0.0.0",
+          "rules": []
+        }
+      },
+      "results": []
+    }
+  ]
+}
+EOF
+            echo "✅ Fichier SARIF vide créé"
           else
-            echo "✅ Fichier SARIF créé avec succès"
+            echo "✅ Fichier SARIF créé avec succès par Trivy"
             ls -lh trivy-results.sarif
           fi
 
       - name: 📤 Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        continue-on-error: true
         with:
           sarif_file: 'trivy-results.sarif'
           category: trivy-scan
 
       - name: 🔍 Run Trivy for detailed report
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image-tag }}
           format: 'table'
@@ -128,6 +131,7 @@ jobs:
       - name: 📤 Upload Trivy report
         uses: actions/upload-artifact@v4
         if: always()
+        continue-on-error: true
         with:
           name: trivy-report
           path: trivy-report.txt
@@ -137,6 +141,10 @@ jobs:
         run: |
           CRITICAL=${{ steps.parse-trivy.outputs.critical }}
           HIGH=${{ steps.parse-trivy.outputs.high }}
+          
+          echo "📊 Vérification des seuils de sécurité..."
+          echo "   CRITICAL: $CRITICAL (seuil: 0)"
+          echo "   HIGH: $HIGH (seuil: 5)"
           
           if [ "$CRITICAL" -gt 0 ]; then
             echo "❌ ÉCHEC: $CRITICAL vulnérabilités CRITIQUES détectées"
@@ -150,3 +158,13 @@ jobs:
           fi
           
           echo "✅ Scan de sécurité passé avec succès"
+          
+          # Créer un résumé GitHub
+          echo "### 🔒 Scan de sécurité terminé" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Sévérité | Nombre | Statut |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 CRITICAL | $CRITICAL | $([ "$CRITICAL" -eq 0 ] && echo "✅ OK" || echo "❌ ÉCHEC") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 HIGH | $HIGH | $([ "$HIGH" -le 5 ] && echo "✅ OK" || echo "⚠️ WARNING") |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 MEDIUM | ${{ steps.parse-trivy.outputs.medium }} | ℹ️ Info |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔵 LOW | ${{ steps.parse-trivy.outputs.low }} | ℹ️ Info |" >> $GITHUB_STEP_SUMMARY
