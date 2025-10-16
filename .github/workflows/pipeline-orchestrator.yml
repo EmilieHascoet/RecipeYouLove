@@ -46,10 +46,11 @@ jobs:
   # 3. Check Coverage JaCoCo (Parallel)
   # ========================================
   check-coverage-jacoco:
-    needs: build-maven
+    needs: [build-maven, config-vars]
     uses: ./.github/workflows/check-coverage.yml
     with:
       java-version: '21'
+      coverage-threshold: ${{ needs.config-vars.outputs.coverage-threshold }}
     secrets: inherit
 
   # ========================================

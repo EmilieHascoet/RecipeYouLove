@@ -1,187 +1,97 @@
-name: 📊 Check Coverage (JaCoCo)
+name: ✅ Check Coverage
 
 on:
   workflow_call:
     inputs:
       java-version:
-        description: "Version de Java"
+        description: "Version de Java à utiliser"
         required: true
         type: string
+      coverage-threshold:
+        description: "Seuil minimum de couverture (%)"
+        required: false
+        type: number
+        default: 60
 
 jobs:
-  detect-structure:
-    name: 🔍 Detect Project Structure
+  check-coverage:
+    name: 📊 Vérifier la couverture
     runs-on: ubuntu-latest
-    outputs:
-      is-parent: ${{ steps.detect.outputs.is-parent }}
-      microservices: ${{ steps.detect.outputs.microservices }}
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
-      - name: 🔍 Detect structure
-        id: detect
-        run: |
-          if [ -d "microservices" ]; then
-            echo "is-parent=true" >> $GITHUB_OUTPUT
-            MS_LIST=$(ls -d microservices/*/ 2>/dev/null | xargs -n 1 basename | jq -R -s -c 'split("\n")[:-1]')
-            echo "microservices=$MS_LIST" >> $GITHUB_OUTPUT
-            echo "🔍 Structure PARENT détectée"
-          else
-            echo "is-parent=false" >> $GITHUB_OUTPUT
-            echo "microservices=[\".\"]" >> $GITHUB_OUTPUT
-            echo "🔍 Structure MICROSERVICE détectée"
-          fi
-
-  coverage-parent:
-    name: 📊 Coverage ${{ matrix.microservice }}
-    needs: detect-structure
-    if: needs.detect-structure.outputs.is-parent == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        microservice: ${{ fromJson(needs.detect-structure.outputs.microservices) }}
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: ☕ Setup Java ${{ inputs.java-version }}
+      - name: ☕ Set up JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
           java-version: ${{ inputs.java-version }}
+          distribution: 'temurin'
           cache: 'maven'
 
-      - name: 💾 Cache Maven dependencies
-        uses: actions/cache@v3
+      - name: 📥 Download JAR Artifact
+        uses: actions/download-artifact@v4
         with:
-          path: ~/.m2/repository
-          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            maven-${{ runner.os }}-
+          name: application-jar
+          path: target/
 
-      - name: 🧪 Run Tests with JaCoCo
-        working-directory: microservices/${{ matrix.microservice }}
-        run: mvn clean test jacoco:report
-
-      - name: 📊 Check Coverage Threshold
-        working-directory: microservices/${{ matrix.microservice }}
+      - name: 📊 Analyser la couverture JaCoCo
         run: |
           # Vérifier que le rapport JaCoCo existe
-          if [ ! -f target/site/jacoco/index.html ]; then
+          if [ ! -f "target/site/jacoco/jacoco.xml" ]; then
             echo "❌ Rapport JaCoCo non trouvé!"
             exit 1
           fi
           
-          # Extraire le pourcentage de couverture depuis le fichier CSV
-          if [ -f target/site/jacoco/jacoco.csv ]; then
-            # Calculer la couverture des instructions
-            INSTRUCTION_MISSED=$(awk -F',' 'NR>1 {missed+=$4} END {print missed}' target/site/jacoco/jacoco.csv)
-            INSTRUCTION_COVERED=$(awk -F',' 'NR>1 {covered+=$5} END {print covered}' target/site/jacoco/jacoco.csv)
-            TOTAL_INSTRUCTIONS=$((INSTRUCTION_MISSED + INSTRUCTION_COVERED))
-            
-            if [ $TOTAL_INSTRUCTIONS -gt 0 ]; then
-              COVERAGE=$((INSTRUCTION_COVERED * 100 / TOTAL_INSTRUCTIONS))
-              
-              echo "📊 Couverture de code: ${COVERAGE}%"
-              echo "   - Instructions couvertes: ${INSTRUCTION_COVERED}"
-              echo "   - Instructions totales: ${TOTAL_INSTRUCTIONS}"
-              
-              if [ $COVERAGE -lt 60 ]; then
-                echo ""
-                echo "❌ ÉCHEC: La couverture de code (${COVERAGE}%) est inférieure au seuil requis de 60%"
-                echo "   Il manque $((60 - COVERAGE))% de couverture pour atteindre l'objectif"
-                exit 1
-              else
-                echo ""
-                echo "✅ SUCCÈS: La couverture de code (${COVERAGE}%) dépasse le seuil requis de 60%"
-              fi
-            else
-              echo "⚠️ Aucune instruction trouvée pour calculer la couverture"
-              exit 1
-            fi
+          # Extraire les statistiques de couverture depuis jacoco.xml
+          INSTRUCTIONS_MISSED=$(grep -oP 'type="INSTRUCTION".*?missed="\K[0-9]+' target/site/jacoco/jacoco.xml | head -1)
+          INSTRUCTIONS_COVERED=$(grep -oP 'type="INSTRUCTION".*?covered="\K[0-9]+' target/site/jacoco/jacoco.xml | head -1)
+          
+          TOTAL=$((INSTRUCTIONS_MISSED + INSTRUCTIONS_COVERED))
+          
+          if [ "$TOTAL" -eq 0 ]; then
+            COVERAGE=0
           else
-            echo "❌ Fichier jacoco.csv non trouvé!"
-            exit 1
-          fi
-
-      - name: 📤 Upload JaCoCo Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: jacoco-report-${{ matrix.microservice }}
-          path: microservices/${{ matrix.microservice }}/target/site/jacoco/
-          retention-days: 30
-
-  coverage-microservice:
-    name: 📊 Coverage Analysis
-    needs: detect-structure
-    if: needs.detect-structure.outputs.is-parent == 'false'
-    runs-on: ubuntu-latest
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: ☕ Setup Java ${{ inputs.java-version }}
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: ${{ inputs.java-version }}
-          cache: 'maven'
-
-      - name: 💾 Cache Maven dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2/repository
-          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            maven-${{ runner.os }}-
-
-      - name: 🧪 Run Tests with JaCoCo
-        run: mvn clean test jacoco:report
-
-      - name: 📊 Check Coverage Threshold
-        run: |
-          # Vérifier que le rapport JaCoCo existe
-          if [ ! -f target/site/jacoco/index.html ]; then
-            echo "❌ Rapport JaCoCo non trouvé!"
-            exit 1
+            COVERAGE=$((INSTRUCTIONS_COVERED * 100 / TOTAL))
           fi
           
-          # Extraire le pourcentage de couverture depuis le fichier CSV
-          if [ -f target/site/jacoco/jacoco.csv ]; then
-            # Calculer la couverture des instructions
-            INSTRUCTION_MISSED=$(awk -F',' 'NR>1 {missed+=$4} END {print missed}' target/site/jacoco/jacoco.csv)
-            INSTRUCTION_COVERED=$(awk -F',' 'NR>1 {covered+=$5} END {print covered}' target/site/jacoco/jacoco.csv)
-            TOTAL_INSTRUCTIONS=$((INSTRUCTION_MISSED + INSTRUCTION_COVERED))
-            
-            if [ $TOTAL_INSTRUCTIONS -gt 0 ]; then
-              COVERAGE=$((INSTRUCTION_COVERED * 100 / TOTAL_INSTRUCTIONS))
-              
-              echo "📊 Couverture de code: ${COVERAGE}%"
-              echo "   - Instructions couvertes: ${INSTRUCTION_COVERED}"
-              echo "   - Instructions totales: ${TOTAL_INSTRUCTIONS}"
-              
-              if [ $COVERAGE -lt 60 ]; then
-                echo ""
-                echo "❌ ÉCHEC: La couverture de code (${COVERAGE}%) est inférieure au seuil requis de 60%"
-                echo "   Il manque $((60 - COVERAGE))% de couverture pour atteindre l'objectif"
-                exit 1
-              else
-                echo ""
-                echo "✅ SUCCÈS: La couverture de code (${COVERAGE}%) dépasse le seuil requis de 60%"
-              fi
-            else
-              echo "⚠️ Aucune instruction trouvée pour calculer la couverture"
-              exit 1
-            fi
-          else
-            echo "❌ Fichier jacoco.csv non trouvé!"
+          THRESHOLD=${{ inputs.coverage-threshold }}
+          
+          echo "📊 Couverture de code: ${COVERAGE}%"
+          echo "   - Instructions couvertes: ${INSTRUCTIONS_COVERED}"
+          echo "   - Instructions totales: ${TOTAL}"
+          echo ""
+          echo "🎯 Seuil requis: ${THRESHOLD}%"
+          
+          # Créer un résumé GitHub
+          echo "### 📊 Rapport de couverture de code" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Métrique | Valeur |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 📈 Couverture | **${COVERAGE}%** |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🎯 Seuil requis | ${THRESHOLD}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Instructions couvertes | ${INSTRUCTIONS_COVERED} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📦 Instructions totales | ${TOTAL} |" >> $GITHUB_STEP_SUMMARY
+          
+          # Vérifier le seuil
+          if [ "$COVERAGE" -lt "$THRESHOLD" ]; then
+            MISSING=$((THRESHOLD - COVERAGE))
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **ÉCHEC**: La couverture de code (${COVERAGE}%) est inférieure au seuil requis de ${THRESHOLD}%" >> $GITHUB_STEP_SUMMARY
+            echo "   Il manque ${MISSING}% de couverture pour atteindre l'objectif" >> $GITHUB_STEP_SUMMARY
+            echo ""
+            echo "❌ ÉCHEC: La couverture de code (${COVERAGE}%) est inférieure au seuil requis de ${THRESHOLD}%"
+            echo "   Il manque ${MISSING}% de couverture pour atteindre l'objectif"
             exit 1
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **SUCCÈS**: La couverture de code répond aux exigences!" >> $GITHUB_STEP_SUMMARY
+            echo ""
+            echo "✅ SUCCÈS: La couverture de code répond aux exigences!"
           fi
 
-      - name: 📤 Upload JaCoCo Report
+      - name: 📤 Upload Coverage Report
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: jacoco-report
           path: target/site/jacoco/

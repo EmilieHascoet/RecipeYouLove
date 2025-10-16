@@ -15,41 +15,59 @@ on:
       namespace:
         description: "Namespace Kubernetes"
         value: ${{ jobs.config.outputs.namespace }}
+      microservice-name:
+        description: "Nom du microservice"
+        value: ${{ jobs.config.outputs.microservice-name }}
+      coverage-threshold:
+        description: "Seuil de couverture minimum"
+        value: ${{ jobs.config.outputs.coverage-threshold }}
 
 jobs:
   config:
-    name: Déterminer la configuration
+    name: 🔧 Déterminer la configuration
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
       should-deploy: ${{ steps.set-env.outputs.should-deploy }}
       image-tag: ${{ steps.set-env.outputs.image-tag }}
       namespace: ${{ steps.set-env.outputs.namespace }}
+      microservice-name: ${{ steps.set-env.outputs.microservice-name }}
+      coverage-threshold: ${{ steps.set-env.outputs.coverage-threshold }}
     steps:
-      - name: Checkout code
+      - name: 📥 Checkout code
         uses: actions/checkout@v4
 
-      - name: Déterminer l'environnement et la configuration
+      - name: 📖 Lire les variables du repository
         id: set-env
         run: |
           BRANCH_NAME="${GITHUB_REF#refs/heads/}"
           COMMIT_SHA="${GITHUB_SHA::7}"
           
-          echo "Branche: $BRANCH_NAME"
-          echo "Commit: $COMMIT_SHA"
+          # Lire les variables GitHub (définies dans Settings > Variables)
+          # Si pas définies, utiliser des valeurs par défaut
+          MS_NAME="${{ vars.MICROSERVICE_NAME }}"
+          MS_NAME=${MS_NAME:-template-service}
+          
+          COVERAGE="${{ vars.COVERAGE_THRESHOLD }}"
+          COVERAGE=${COVERAGE:-60}
+          
+          echo "📦 Microservice: $MS_NAME"
+          echo "📊 Seuil de couverture: $COVERAGE%"
+          echo "🌿 Branche: $BRANCH_NAME"
+          echo "🏷️ Commit: $COMMIT_SHA"
           
           # Détermination de l'environnement selon la branche
           if [[ "$BRANCH_NAME" == "main" ]]; then
             ENVIRONMENT="production"
             NAMESPACE="prod"
             SHOULD_DEPLOY="true"
-            echo "Environnement: PRODUCTION"
+            echo "🚀 Environnement: PRODUCTION"
           elif [[ "$BRANCH_NAME" == "develop" ]]; then
             ENVIRONMENT="staging"
             NAMESPACE="staging"
             SHOULD_DEPLOY="true"
-            echo "Environnement: STAGING"
-          elif [[ "$BRANCH_NAME" == feature/* ]] || [[ "$BRANCH_NAME" == hotfix/* ]]; then
+            echo "🧪 Environnement: STAGING"
+          elif [[ "$BRANCH_NAME" == feat/* ]] || [[ "$BRANCH_NAME" == fix/* ]] || [[ "$BRANCH_NAME" == hotfix/* ]]; then
             ENVIRONMENT="dev"
             NAMESPACE="dev"
             SHOULD_DEPLOY="true"
@@ -58,36 +76,30 @@ jobs:
             ENVIRONMENT="dev"
             NAMESPACE="dev"
             SHOULD_DEPLOY="false"
-            echo "Branche non reconnue, pas de déploiement"
+            echo "⚠️ Branche non reconnue, pas de déploiement"
           fi
           
           # Génération du tag d'image
-          IMAGE_TAG="${COMMIT_SHA}-${BRANCH_NAME//\//-}"
+          IMAGE_TAG="${BRANCH_NAME//\//-}-${COMMIT_SHA}"
           
           # Export des outputs
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
           echo "should-deploy=${SHOULD_DEPLOY}" >> $GITHUB_OUTPUT
           echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
           echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
+          echo "microservice-name=${MS_NAME}" >> $GITHUB_OUTPUT
+          echo "coverage-threshold=${COVERAGE}" >> $GITHUB_OUTPUT
           
           # Affichage récapitulatif
-          echo "### Configuration Pipeline" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔧 Configuration Pipeline" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Variable | Valeur |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Branche | \`$BRANCH_NAME\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Environnement | **$ENVIRONMENT** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Namespace K8s | \`$NAMESPACE\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Tag Image | \`$IMAGE_TAG\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Déploiement | $SHOULD_DEPLOY |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Récupérer secrets depuis Vault (optionnel)
-        if: env.VAULT_ENABLED == 'true'
-        env:
-          VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
-          VAULT_TOKEN: ${{ secrets.VAULT_TOKEN }}
-        run: |
-          echo "Configuration Vault..."
-          # TODO: Implémenter récupération secrets Vault
-          # vault kv get secret/mysql
-          # vault kv get secret/mongodb
+          echo "| 📦 Microservice | \`${MS_NAME}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🌿 Branche | \`$BRANCH_NAME\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🏷️ Commit | \`$COMMIT_SHA\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🌍 Environnement | **$ENVIRONMENT** |" >> $GITHUB_STEP_SUMMARY
+          echo "| ☸️ Namespace K8s | \`$NAMESPACE\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🐳 Tag Image | \`$IMAGE_TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🚀 Déploiement | $SHOULD_DEPLOY |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📊 Couverture min | ${COVERAGE}% |" >> $GITHUB_STEP_SUMMARY
