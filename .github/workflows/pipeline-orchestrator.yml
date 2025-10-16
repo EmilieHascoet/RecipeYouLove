@@ -68,7 +68,7 @@ jobs:
   # 5. Build Docker Image (Parallel)
   # ========================================
   build-docker-image:
-    needs: [build-maven, check-coverage-jacoco]
+    needs: [config-vars, build-maven, check-coverage-jacoco]
     uses: ./.github/workflows/build-docker-image.yml
     with:
       image-tag: ${{ needs.config-vars.outputs.image-tag }}
@@ -78,7 +78,7 @@ jobs:
   # 6. Check Conformity Image (Security Scan)
   # ========================================
   check-conformity-image:
-    needs: build-docker-image
+    needs: [config-vars, build-docker-image]
     uses: ./.github/workflows/check-conformity-image.yml
     with:
       image-tag: ${{ needs.config-vars.outputs.image-tag }}
