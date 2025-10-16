@@ -114,21 +114,28 @@ jobs:
           REPORT_FILE="trivy-report.txt"
           
           if [ -f "$REPORT_FILE" ]; then
-            CRITICAL=$(grep -c "CRITICAL" "$REPORT_FILE" || echo "0")
-            HIGH=$(grep -c "HIGH" "$REPORT_FILE" || echo "0")
-            MEDIUM=$(grep -c "MEDIUM" "$REPORT_FILE" || echo "0")
-            LOW=$(grep -c "LOW" "$REPORT_FILE" || echo "0")
+            # Compter les occurrences (sans || echo car grep -c retourne toujours un nombre)
+            CRITICAL=$(grep -c "CRITICAL" "$REPORT_FILE" 2>/dev/null || true)
+            HIGH=$(grep -c "HIGH" "$REPORT_FILE" 2>/dev/null || true)
+            MEDIUM=$(grep -c "MEDIUM" "$REPORT_FILE" 2>/dev/null || true)
+            LOW=$(grep -c "LOW" "$REPORT_FILE" 2>/dev/null || true)
+            
+            # Si vide, mettre à 0
+            CRITICAL=${CRITICAL:-0}
+            HIGH=${HIGH:-0}
+            MEDIUM=${MEDIUM:-0}
+            LOW=${LOW:-0}
           
-            echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
-            echo "high=$HIGH" >> $GITHUB_OUTPUT
-            echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
-            echo "low=$LOW" >> $GITHUB_OUTPUT
+            echo "critical=${CRITICAL}" >> $GITHUB_OUTPUT
+            echo "high=${HIGH}" >> $GITHUB_OUTPUT
+            echo "medium=${MEDIUM}" >> $GITHUB_OUTPUT
+            echo "low=${LOW}" >> $GITHUB_OUTPUT
             
             echo "📊 Résultats du scan de sécurité:"
-            echo "   🔴 CRITICAL: $CRITICAL"
-            echo "   🟠 HIGH: $HIGH"
-            echo "   🟡 MEDIUM: $MEDIUM"
-            echo "   🔵 LOW: $LOW"
+            echo "   🔴 CRITICAL: ${CRITICAL}"
+            echo "   🟠 HIGH: ${HIGH}"
+            echo "   🟡 MEDIUM: ${MEDIUM}"
+            echo "   🔵 LOW: ${LOW}"
           else
             echo "⚠️ Rapport détaillé non disponible"
             echo "critical=0" >> $GITHUB_OUTPUT
