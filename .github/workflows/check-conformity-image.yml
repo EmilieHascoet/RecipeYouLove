@@ -10,7 +10,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   security-scan:
@@ -31,9 +30,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 🔍 Préparer le nom de l'image
+        id: image
+        run: |
+          # Convertir le nom du repository en minuscules (requis par Docker)
+          IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_REF="${{ env.REGISTRY }}/${IMAGE_NAME}:${{ inputs.image-tag }}"
+          
+          echo "image-ref=${IMAGE_REF}" >> $GITHUB_OUTPUT
+          echo "🔍 Image à scanner: ${IMAGE_REF}"
+
       - name: 🔍 Vérifier que l'image existe
         run: |
-          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image-tag }}"
+          IMAGE_REF="${{ steps.image.outputs.image-ref }}"
           echo "🔍 Vérification de l'image: $IMAGE_REF"
           
           if docker manifest inspect $IMAGE_REF > /dev/null 2>&1; then
@@ -48,7 +57,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image-tag }}
+          image-ref: ${{ steps.image.outputs.image-ref }}
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
@@ -94,7 +103,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image-tag }}
+          image-ref: ${{ steps.image.outputs.image-ref }}
           format: 'table'
           output: 'trivy-report.txt'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'

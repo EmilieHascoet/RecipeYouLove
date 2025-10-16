@@ -14,7 +14,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   deploy:
@@ -58,11 +57,16 @@ jobs:
           # Extraire le nom depuis pom.xml
           APP_NAME=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout 2>/dev/null || echo "application")
           
+          # Convertir le nom du repository en minuscules (requis par Docker)
+          IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          
           echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
           echo "app_name=${APP_NAME}" >> $GITHUB_OUTPUT
+          echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
           
           echo "🚀 Déploiement de: $APP_NAME"
           echo "📦 Namespace: $NAMESPACE"
+          echo "🐳 Image: ${IMAGE_NAME}"
           echo "🏷️ Image tag: ${{ inputs.image-tag }}"
 
       - name: 📦 Vérifier/Créer namespace
@@ -90,6 +94,7 @@ jobs:
         run: |
           NAMESPACE="${{ steps.config.outputs.namespace }}"
           APP_NAME="${{ steps.config.outputs.app_name }}"
+          IMAGE_NAME="${{ steps.config.outputs.image_name }}"
           IMAGE_TAG="${{ inputs.image-tag }}"
           
           VALUES_FILE="values-${{ inputs.environment }}.yaml"
@@ -104,7 +109,7 @@ jobs:
             --namespace $NAMESPACE \
             --create-namespace \
             --values $VALUES_FILE \
-            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+            --set image.repository=${{ env.REGISTRY }}/${IMAGE_NAME} \
             --set image.tag=$IMAGE_TAG \
             --set nameOverride=$APP_NAME \
             --set fullnameOverride=$APP_NAME \
@@ -130,6 +135,7 @@ jobs:
         run: |
           NAMESPACE="${{ steps.config.outputs.namespace }}"
           APP_NAME="${{ steps.config.outputs.app_name }}"
+          IMAGE_NAME="${{ steps.config.outputs.image_name }}"
           
           # Sauvegarder les infos pour les tests d'intégration
           mkdir -p deployment-info
@@ -143,7 +149,7 @@ jobs:
             "namespace": "$NAMESPACE",
             "service_name": "$SERVICE_NAME",
             "service_port": "$SERVICE_PORT",
-            "image_tag": "${{ inputs.image-tag }}",
+            "image": "${{ env.REGISTRY }}/${IMAGE_NAME}:${{ inputs.image-tag }}",
             "environment": "${{ inputs.environment }}"
           }
           EOF
@@ -161,6 +167,7 @@ jobs:
         run: |
           NAMESPACE="${{ steps.config.outputs.namespace }}"
           APP_NAME="${{ steps.config.outputs.app_name }}"
+          IMAGE_NAME="${{ steps.config.outputs.image_name }}"
           
           echo "### 🚀 Déploiement réussi" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -170,4 +177,4 @@ jobs:
           echo "| 🌍 Environnement | **${{ inputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
           echo "| ☸️ Namespace | \`$NAMESPACE\` |" >> $GITHUB_STEP_SUMMARY
           echo "| 🏷️ Image Tag | \`${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🐳 Image | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🐳 Image | \`${{ env.REGISTRY }}/${IMAGE_NAME}:${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
