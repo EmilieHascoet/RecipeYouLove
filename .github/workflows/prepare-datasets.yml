@@ -1,4 +1,4 @@
-name: Prepare Datasets
+name: 📊 Prepare Datasets
 
 on:
   workflow_call:
@@ -9,104 +9,67 @@ on:
         type: string
 
 jobs:
-  prepare-mysql:
-    name:  Prepare MySQL Dataset
+  prepare-datasets:
+    name: 📊 Prepare Test Datasets
     runs-on: ubuntu-latest
     steps:
-      - name:  Checkout code
+      - name: 📥 Checkout code
         uses: actions/checkout@v4
 
-      - name:  Setup Python
+      - name: 🐍 Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name:  Install dependencies
+      - name: 📦 Install dependencies
         run: |
-          pip install pymysql cryptography python-dotenv pyyaml
+          pip install pymysql pymongo cryptography python-dotenv pyyaml
 
       - name: 📥 Download deployment info
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: deployment-info
           path: deployment-info/
 
-      - name: 🔧 Setup kubectl
-        uses: azure/setup-kubectl@v3
-
-      - name:  Configure Kubernetes credentials
+      - name: 📊 Prepare datasets
         env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-        run: |
-          mkdir -p ~/.kube
-          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
-
-      - name:  Prepare MySQL Dataset
-        env:
-          MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
-          MYSQL_PORT: ${{ secrets.MYSQL_PORT }}
-          MYSQL_USER: ${{ secrets.MYSQL_USER }}
-          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          MYSQL_HOST: ${{ vars.MYSQL_HOST }}
+          MYSQL_PORT: ${{ vars.MYSQL_PORT }}
+          MYSQL_DATABASE: ${{ vars.MYSQL_DATABASE }}
+          MYSQL_USERNAME: ${{ vars.MYSQL_ROOT_USERNAME }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MONGO_HOST: ${{ vars.MONGO_HOST }}
+          MONGO_PORT: ${{ vars.MONGO_PORT }}
+          MONGO_DATABASE: ${{ vars.MONGO_DATABASE }}
+          MONGO_USERNAME: ${{ vars.MONGO_ROOT_USERNAME }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_ROOT_PASSWORD }}
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
-          python ci-cd/scripts/prepare-mysql-dataset.py \
-            --environment ${{ inputs.environment }} \
-            --deployment-info deployment-info/
+          echo "📊 Préparation des datasets pour l'environnement: ${{ inputs.environment }}"
+          echo ""
+          echo "🔍 Configuration:"
+          echo "  - MySQL Host: ${MYSQL_HOST}"
+          echo "  - MySQL Port: ${MYSQL_PORT}"
+          echo "  - MySQL Database: ${MYSQL_DATABASE}"
+          echo "  - MongoDB Host: ${MONGO_HOST}"
+          echo "  - MongoDB Port: ${MONGO_PORT}"
+          echo "  - MongoDB Database: ${MONGO_DATABASE}"
+          echo ""
+          echo "⚠️ Scripts de préparation des datasets non encore implémentés"
+          echo "   TODO: Créer les scripts Python dans ci-cd/scripts/"
+          echo ""
+          echo "✅ Cette étape sera complétée lors de la phase de tests d'intégration"
 
-      - name:  Dataset Summary
+      - name: 📊 Dataset Summary
         run: |
-          echo "### 🐬 MySQL Dataset Prepared" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Préparation des Datasets" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Dataset de test créé pour l'environnement **${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
-
-  prepare-mongodb:
-    name:  Prepare MongoDB Dataset
-    runs-on: ubuntu-latest
-    steps:
-      - name:  Checkout code
-        uses: actions/checkout@v4
-
-      - name:  Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name:  Install dependencies
-        run: |
-          pip install pymongo python-dotenv pyyaml
-
-      - name: 📥 Download deployment info
-        uses: actions/download-artifact@v4
-        with:
-          name: deployment-info
-          path: deployment-info/
-
-      - name:  Setup kubectl
-        uses: azure/setup-kubectl@v3
-
-      - name: 🔐 Configure Kubernetes credentials
-        env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-        run: |
-          mkdir -p ~/.kube
-          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
-          chmod 600 ~/.kube/config
-
-      - name:  Prepare MongoDB Dataset
-        env:
-          MONGO_HOST: ${{ secrets.MONGO_HOST }}
-          MONGO_PORT: ${{ secrets.MONGO_PORT }}
-          MONGO_USER: ${{ secrets.MONGO_USER }}
-          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
-          ENVIRONMENT: ${{ inputs.environment }}
-        run: |
-          python ci-cd/scripts/prepare-mongodb-dataset.py \
-            --environment ${{ inputs.environment }} \
-            --deployment-info deployment-info/
-
-      - name:  Dataset Summary
-        run: |
-          echo "###  MongoDB Dataset Prepared" >> $GITHUB_STEP_SUMMARY
+          echo "**Environnement:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Dataset de test créé pour l'environnement **${{ inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Note:** Les scripts de préparation des datasets seront ajoutés ultérieurement" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Cette étape permettra de:" >> $GITHUB_STEP_SUMMARY
+          echo "- Initialiser les bases de données avec des données de test" >> $GITHUB_STEP_SUMMARY
+          echo "- Préparer les datasets pour les tests d'intégration" >> $GITHUB_STEP_SUMMARY
+          echo "- Vérifier la connectivité aux bases de données" >> $GITHUB_STEP_SUMMARY

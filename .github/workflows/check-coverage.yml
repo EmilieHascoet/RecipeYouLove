@@ -10,8 +10,8 @@ on:
       coverage-threshold:
         description: "Seuil minimum de couverture (%)"
         required: false
-        type: number
-        default: 60
+        type: string
+        default: "60"
 
 jobs:
   check-coverage:

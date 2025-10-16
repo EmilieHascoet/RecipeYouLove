@@ -82,7 +82,7 @@ jobs:
           # Génération du tag d'image
           IMAGE_TAG="${BRANCH_NAME//\//-}-${COMMIT_SHA}"
           
-          # Export des outputs
+          # Export des outputs - IMPORTANT: tout en string
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
           echo "should-deploy=${SHOULD_DEPLOY}" >> $GITHUB_OUTPUT
           echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT

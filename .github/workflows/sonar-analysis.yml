@@ -9,89 +9,10 @@ on:
         type: string
 
 jobs:
-  detect-structure:
-    name: 🔍 Detect Project Structure
-    runs-on: ubuntu-latest
-    outputs:
-      is-parent: ${{ steps.detect.outputs.is-parent }}
-      microservices: ${{ steps.detect.outputs.microservices }}
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-
-      - name: 🔍 Detect structure
-        id: detect
-        run: |
-          if [ -d "microservices" ]; then
-            echo "is-parent=true" >> $GITHUB_OUTPUT
-            MS_LIST=$(ls -d microservices/*/ 2>/dev/null | xargs -n 1 basename | jq -R -s -c 'split("\n")[:-1]')
-            echo "microservices=$MS_LIST" >> $GITHUB_OUTPUT
-            echo "🔍 Structure PARENT détectée"
-          else
-            echo "is-parent=false" >> $GITHUB_OUTPUT
-            echo "microservices=[\".\"]" >> $GITHUB_OUTPUT
-            echo "🔍 Structure MICROSERVICE détectée"
-          fi
-
-  sonar-parent:
-    name: 📊 SonarQube ${{ matrix.microservice }}
-    needs: detect-structure
-    if: needs.detect-structure.outputs.is-parent == 'true' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        microservice: ${{ fromJson(needs.detect-structure.outputs.microservices) }}
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: ☕ Setup Java ${{ inputs.java-version }}
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: ${{ inputs.java-version }}
-          cache: 'maven'
-
-      - name: 💾 Cache SonarQube packages
-        uses: actions/cache@v3
-        with:
-          path: ~/.sonar/cache
-          key: sonar-${{ runner.os }}-${{ matrix.microservice }}
-          restore-keys: |
-            sonar-${{ runner.os }}-
-
-      - name: 💾 Cache Maven dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2/repository
-          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            maven-${{ runner.os }}-
-
-      - name: 📊 SonarQube Scan
-        working-directory: microservices/${{ matrix.microservice }}
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mvn clean verify sonar:sonar \
-            -Dsonar.projectKey=${{ matrix.microservice }} \
-            -Dsonar.projectName="${{ matrix.microservice }}" \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
-            -Dsonar.java.source=${{ inputs.java-version }} \
-            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-            -Dsonar.qualitygate.wait=true
-
-  sonar-microservice:
+  sonarqube-scan:
     name: 📊 SonarQube Analysis
-    needs: detect-structure
-    if: needs.detect-structure.outputs.is-parent == 'false' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
@@ -130,6 +51,8 @@ jobs:
           # Extraire le nom du projet depuis pom.xml
           PROJECT_NAME=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
           
+          echo "📊 Analyse SonarQube pour: $PROJECT_NAME"
+          
           mvn clean verify sonar:sonar \
             -Dsonar.projectKey=${PROJECT_NAME} \
             -Dsonar.projectName="${PROJECT_NAME}" \
@@ -138,3 +61,11 @@ jobs:
             -Dsonar.java.source=${{ inputs.java-version }} \
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
             -Dsonar.qualitygate.wait=true
+
+      - name: 📊 SonarQube Summary
+        run: |
+          echo "### 📊 Analyse SonarQube terminée" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ L'analyse de qualité du code a été effectuée avec succès" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Consultez les résultats sur: ${{ secrets.SONAR_HOST_URL }}" >> $GITHUB_STEP_SUMMARY
