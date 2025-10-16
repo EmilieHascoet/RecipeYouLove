@@ -21,26 +21,23 @@ jobs:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
-      - name: ☕ Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          java-version: ${{ inputs.java-version }}
-          distribution: 'temurin'
-          cache: 'maven'
-
-      - name: 📥 Download JAR Artifact
+      - name: 📥 Download JaCoCo Report
         uses: actions/download-artifact@v4
         with:
-          name: application-jar
-          path: target/
+          name: jacoco-report
+          path: target/site/jacoco/
 
       - name: 📊 Analyser la couverture JaCoCo
         run: |
           # Vérifier que le rapport JaCoCo existe
           if [ ! -f "target/site/jacoco/jacoco.xml" ]; then
             echo "❌ Rapport JaCoCo non trouvé!"
+            echo "📂 Contenu de target/site/jacoco/:"
+            ls -la target/site/jacoco/ || echo "Le dossier n'existe pas"
             exit 1
           fi
+          
+          echo "✅ Rapport JaCoCo trouvé"
           
           # Extraire les statistiques de couverture depuis jacoco.xml
           INSTRUCTIONS_MISSED=$(grep -oP 'type="INSTRUCTION".*?missed="\K[0-9]+' target/site/jacoco/jacoco.xml | head -1)
@@ -93,6 +90,6 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: jacoco-report
+          name: jacoco-report-verified
           path: target/site/jacoco/
           retention-days: 30
