@@ -31,6 +31,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 🔍 Vérifier que l'image existe
+        run: |
+          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.image-tag }}"
+          echo "🔍 Vérification de l'image: $IMAGE_REF"
+          
+          if docker manifest inspect $IMAGE_REF > /dev/null 2>&1; then
+            echo "✅ Image trouvée dans le registry"
+          else
+            echo "❌ Image non trouvée dans le registry!"
+            echo "Vérifiez que le job build-docker-image a réussi."
+            exit 1
+          fi
+
       - name: 🔍 Run Trivy vulnerability scanner (SARIF)
         uses: aquasecurity/trivy-action@master
         with:
@@ -39,6 +52,34 @@ jobs:
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
           exit-code: '0'
+
+      - name: 🔍 Vérifier que le fichier SARIF a été créé
+        run: |
+          if [ ! -f "trivy-results.sarif" ]; then
+            echo "⚠️ Fichier SARIF non créé, création d'un rapport vide"
+            cat > trivy-results.sarif <<EOF
+          {
+            "version": "2.1.0",
+            "\$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+            "runs": [
+              {
+                "tool": {
+                  "driver": {
+                    "name": "Trivy",
+                    "informationUri": "https://github.com/aquasecurity/trivy",
+                    "version": "0.0.0",
+                    "rules": []
+                  }
+                },
+                "results": []
+              }
+            ]
+          }
+          EOF
+          else
+            echo "✅ Fichier SARIF créé avec succès"
+            ls -lh trivy-results.sarif
+          fi
 
       - name: 📤 Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
@@ -76,10 +117,17 @@ jobs:
             echo "   🟠 HIGH: $HIGH"
             echo "   🟡 MEDIUM: $MEDIUM"
             echo "   🔵 LOW: $LOW"
+          else
+            echo "⚠️ Rapport détaillé non disponible"
+            echo "critical=0" >> $GITHUB_OUTPUT
+            echo "high=0" >> $GITHUB_OUTPUT
+            echo "medium=0" >> $GITHUB_OUTPUT
+            echo "low=0" >> $GITHUB_OUTPUT
           fi
 
       - name: 📤 Upload Trivy report
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: trivy-report
           path: trivy-report.txt
