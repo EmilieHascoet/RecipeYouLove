@@ -53,11 +53,29 @@ jobs:
       - name: 🔨 Compile
         run: mvn compile -DskipTests
 
-      - name: 🧪 Run Unit Tests
+      - name: 🧪 Run Unit Tests with JaCoCo
         run: mvn test
 
-      - name: 📊 Generate JaCoCo Report
-        run: mvn jacoco:report
+      - name: 🔍 Vérifier que le rapport JaCoCo a été généré
+        run: |
+          echo "📂 Contenu de target/site/jacoco/:"
+          ls -la target/site/jacoco/ || echo "⚠️ Le dossier jacoco n'existe pas encore"
+          
+          if [ ! -f "target/site/jacoco/jacoco.xml" ]; then
+            echo "⚠️ jacoco.xml non trouvé, régénération du rapport..."
+            mvn jacoco:report
+          fi
+          
+          echo ""
+          echo "📂 Après régénération:"
+          ls -la target/site/jacoco/
+          
+          if [ ! -f "target/site/jacoco/jacoco.xml" ]; then
+            echo "❌ Impossible de générer le rapport JaCoCo!"
+            exit 1
+          fi
+          
+          echo "✅ Rapport JaCoCo généré avec succès"
 
       - name: 📦 Package JAR
         run: |
