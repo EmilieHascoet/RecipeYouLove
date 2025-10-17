@@ -10,121 +10,160 @@ on:
   pull_request:
     branches:
       - main
-      - develop
-  workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
   security-events: write
-
-env:
-  JAVA_VERSION: '21'
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  pull-requests: write
 
 jobs:
-  # ========================================
-  # 1. Configuration Variables
-  # ========================================
-  config-vars:
+  # ============================================
+  # 1. Configuration initiale
+  # ============================================
+  setup-config:
+    name: Configuration
     uses: ./.github/workflows/config-vars.yml
-    secrets: inherit
 
-  # ========================================
-  # 2. Build Maven
-  # ========================================
+  # ============================================
+  # 2. Build et Tests
+  # ============================================
   build-maven:
-    needs: config-vars
+    name: Build & Tests
+    needs: [setup-config]
     uses: ./.github/workflows/build-maven.yml
     with:
       java-version: '21'
-      environment: ${{ needs.config-vars.outputs.environment }}
-    secrets: inherit
+      coverage-threshold: ${{ needs.setup-config.outputs.coverage-threshold }}
 
-  # ========================================
-  # 3. Check Coverage JaCoCo (Parallel)
-  # ========================================
-  check-coverage-jacoco:
-    needs: [build-maven, config-vars]
-    uses: ./.github/workflows/check-coverage.yml
-    with:
-      java-version: '21'
-      coverage-threshold: ${{ needs.config-vars.outputs.coverage-threshold }}
-    secrets: inherit
-
-  # ========================================
-  # 4. SonarQube Analysis (main uniquement)
-  # ========================================
+  # ============================================
+  # 3. SonarQube (uniquement sur PR vers main)
+  # ============================================
   sonarqube-analysis:
-    needs: build-maven
-    if: github.ref == 'refs/heads/main'
+    name: SonarQube
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    needs: [setup-config, build-maven]
     uses: ./.github/workflows/sonar-analysis.yml
     with:
       java-version: '21'
     secrets: inherit
 
-  # ========================================
-  # 5. Build Docker Image (Parallel)
-  # ========================================
+  # ============================================
+  # 4. Build Docker Image
+  # ============================================
   build-docker-image:
-    needs: [config-vars, build-maven, check-coverage-jacoco]
+    name: Docker Image
+    needs: [setup-config, build-maven]
+    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/build-docker-image.yml
     with:
-      image-tag: ${{ needs.config-vars.outputs.image-tag }}
+      image-tag: ${{ needs.setup-config.outputs.image-tag }}
+      microservice-name: ${{ needs.setup-config.outputs.microservice-name }}
     secrets: inherit
+    permissions:
+      contents: read
+      packages: write
 
-  # ========================================
-  # 6. Check Conformity Image (Security Scan)
-  # ========================================
-  check-conformity-image:
-    needs: [config-vars, build-docker-image]
+  # ============================================
+  # 5. Security Scan de l'image
+  # ============================================
+  security-scan:
+    name: Security Scan
+    needs: [setup-config, build-docker-image]
+    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/check-conformity-image.yml
     with:
-      image-tag: ${{ needs.config-vars.outputs.image-tag }}
+      image-tag: ${{ needs.setup-config.outputs.image-tag }}
+      microservice-name: ${{ needs.setup-config.outputs.microservice-name }}
     secrets: inherit
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
 
-  # ========================================
-  # 7. Deploy to Kubernetes
-  # ========================================
+  # ============================================
+  # 6. Déploiement Kubernetes
+  # ============================================
   deploy-kubernetes:
-    needs: [config-vars, check-conformity-image]
-    if: needs.config-vars.outputs.should-deploy == 'true'
-    uses: ./.github/workflows/deploy-Kubernetes.yml
+    name: Deploy K8s
+    needs: [setup-config, build-docker-image, security-scan]
+    if: |
+      github.event_name != 'pull_request' && 
+      needs.setup-config.outputs.should-deploy == 'true'
+    uses: ./.github/workflows/deploy-kubernetes.yml
     with:
-      environment: ${{ needs.config-vars.outputs.environment }}
-      image-tag: ${{ needs.config-vars.outputs.image-tag }}
+      environment: ${{ needs.setup-config.outputs.environment }}
+      namespace: ${{ needs.setup-config.outputs.namespace }}
+      microservice-name: ${{ needs.setup-config.outputs.microservice-name }}
+      image-tag: ${{ needs.setup-config.outputs.image-tag }}
+      domain-suffix: ${{ needs.setup-config.outputs.domain-suffix }}
+      base-domain: ${{ needs.setup-config.outputs.base-domain }}
     secrets: inherit
 
-  # ========================================
-  # 8. Prepare Datasets
-  # ========================================
-  prepare-datasets:
-    needs: deploy-kubernetes
-    uses: ./.github/workflows/prepare-datasets.yml
-    with:
-      environment: ${{ needs.config-vars.outputs.environment }}
-    secrets: inherit
-
-  # ========================================
-  # 9. Run Integration Tests (Newman)
-  # ========================================
-  # TODO: Décommenter quand le workflow run-integration-tests.yml sera créé
-  # run-integration-tests:
-  #   needs: prepare-datasets
-  #   uses: ./.github/workflows/run-integration-tests.yml
-  #   with:
-  #     environment: ${{ needs.config-vars.outputs.environment }}
-  #   secrets: inherit
-
-  # ========================================
-  # 10. Cleanup Jobs
-  # ========================================
-  # TODO: Décommenter quand le workflow cleanup-jobs.yml sera créé
-  # cleanup-jobs:
-  #   needs: [run-integration-tests]
-  #   if: always()
-  #   uses: ./.github/workflows/cleanup-jobs.yml
-  #   with:
-  #     environment: ${{ needs.config-vars.outputs.environment }}
-  #   secrets: inherit
+  # ============================================
+  # 7. Résumé final
+  # ============================================
+  pipeline-summary:
+    name: Résumé Pipeline
+    needs: [setup-config, build-maven, build-docker-image, security-scan, deploy-kubernetes]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Résumé de la Pipeline
+        run: |
+          echo "# Résumé de la Pipeline CI/CD" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Microservice**: \`${{ needs.setup-config.outputs.microservice-name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environnement**: **${{ needs.setup-config.outputs.environment }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branche**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Étapes réalisées" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Build Maven
+          if [[ "${{ needs.build-maven.result }}" == "success" ]]; then
+            echo "- [x] Build & Tests Maven" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- [ ] Build & Tests Maven (FAILED)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # SonarQube
+          if [[ "${{ github.event_name }}" == "pull_request" ]] && [[ "${{ github.base_ref }}" == "main" ]]; then
+            if [[ "${{ needs.sonarqube-analysis.result }}" == "success" ]]; then
+              echo "- [x] Analyse SonarQube" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- [ ] Analyse SonarQube (FAILED)" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          # Docker Build
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            if [[ "${{ needs.build-docker-image.result }}" == "success" ]]; then
+              echo "- [x] Build Docker Image" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- [ ] Build Docker Image (FAILED)" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Security Scan
+            if [[ "${{ needs.security-scan.result }}" == "success" ]]; then
+              echo "- [x] Security Scan" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- [ ] Security Scan (FAILED)" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Déploiement
+            if [[ "${{ needs.setup-config.outputs.should-deploy }}" == "true" ]]; then
+              if [[ "${{ needs.deploy-kubernetes.result }}" == "success" ]]; then
+                DOMAIN="https://soa-${{ needs.setup-config.outputs.microservice-name }}${{ needs.setup-config.outputs.domain-suffix }}.${{ needs.setup-config.outputs.base-domain }}"
+                echo "- [x] Déploiement Kubernetes" >> $GITHUB_STEP_SUMMARY
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "## Application déployée" >> $GITHUB_STEP_SUMMARY
+                echo "- **URL**: [$DOMAIN]($DOMAIN)" >> $GITHUB_STEP_SUMMARY
+                echo "- **Health Check**: [$DOMAIN/actuator/health]($DOMAIN/actuator/health)" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "- [ ] Déploiement Kubernetes (FAILED)" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+          fi

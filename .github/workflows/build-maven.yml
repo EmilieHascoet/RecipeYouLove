@@ -1,4 +1,4 @@
-name: 📦 Build Maven
+name: Build Maven
 
 on:
   workflow_call:
@@ -7,31 +7,30 @@ on:
         description: "Version de Java"
         required: true
         type: string
-      environment:
-        description: "Environnement cible"
-        required: false
+      coverage-threshold:
+        description: "Seuil de couverture minimum"
+        required: true
         type: string
-        default: "dev"
 
 env:
   MAVEN_OPTS: '-Xmx3072m -XX:+UseG1GC'
 
 jobs:
   build-application:
-    name: 📦 Build Application
+    name: Build Application
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: ☕ Setup Java ${{ inputs.java-version }}
+      - name: Setup Java ${{ inputs.java-version }}
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: ${{ inputs.java-version }}
           cache: 'maven'
 
-      - name: 💾 Cache Maven dependencies
+      - name: Cache Maven dependencies
         uses: actions/cache@v3
         with:
           path: ~/.m2/repository
@@ -39,57 +38,108 @@ jobs:
           restore-keys: |
             maven-${{ runner.os }}-
 
-      - name: 🔍 Vérifier pom.xml
+      - name: Vérifier pom.xml
         run: |
           if [ ! -f pom.xml ]; then
-            echo "❌ Fichier pom.xml introuvable!"
+            echo "Fichier pom.xml introuvable!"
             exit 1
           fi
-          echo "✅ Fichier pom.xml trouvé"
+          echo "Fichier pom.xml trouvé"
 
-      - name: 🧹 Clean workspace
+      - name: Clean workspace
         run: mvn clean
 
-      - name: 🔨 Compile
+      - name: Compile
         run: mvn compile -DskipTests
 
-      - name: 🧪 Run Unit Tests with JaCoCo
+      - name: Run Unit Tests with JaCoCo
         run: mvn test
 
-      - name: 🔍 Vérifier que le rapport JaCoCo a été généré
+      - name: Vérifier que le rapport JaCoCo a été généré
         run: |
-          echo "📂 Contenu de target/site/jacoco/:"
-          ls -la target/site/jacoco/ || echo "⚠️ Le dossier jacoco n'existe pas encore"
+          echo "Contenu de target/site/jacoco/:"
+          ls -la target/site/jacoco/ || echo "Le dossier jacoco n'existe pas encore"
           
           if [ ! -f "target/site/jacoco/jacoco.xml" ]; then
-            echo "⚠️ jacoco.xml non trouvé, régénération du rapport..."
+            echo "jacoco.xml non trouvé, régénération du rapport..."
             mvn jacoco:report
           fi
           
           echo ""
-          echo "📂 Après régénération:"
+          echo "Après régénération:"
           ls -la target/site/jacoco/
           
           if [ ! -f "target/site/jacoco/jacoco.xml" ]; then
-            echo "❌ Impossible de générer le rapport JaCoCo!"
+            echo "Impossible de générer le rapport JaCoCo!"
             exit 1
           fi
           
-          echo "✅ Rapport JaCoCo généré avec succès"
+          echo "Rapport JaCoCo généré avec succès"
 
-      - name: 📦 Package JAR
+      - name: Vérifier la couverture de code
+        run: |
+          if [ ! -f "target/site/jacoco/jacoco.xml" ]; then
+            echo "Rapport JaCoCo non trouvé!"
+            exit 1
+          fi
+          
+          INSTRUCTIONS_MISSED=$(grep -oP 'type="INSTRUCTION".*?missed="\K[0-9]+' target/site/jacoco/jacoco.xml | head -1)
+          INSTRUCTIONS_COVERED=$(grep -oP 'type="INSTRUCTION".*?covered="\K[0-9]+' target/site/jacoco/jacoco.xml | head -1)
+          
+          TOTAL=$((INSTRUCTIONS_MISSED + INSTRUCTIONS_COVERED))
+          
+          if [ "$TOTAL" -eq 0 ]; then
+            COVERAGE=0
+          else
+            COVERAGE=$((INSTRUCTIONS_COVERED * 100 / TOTAL))
+          fi
+          
+          THRESHOLD=${{ inputs.coverage-threshold }}
+          
+          echo "Couverture de code: ${COVERAGE}%"
+          echo "   - Instructions couvertes: ${INSTRUCTIONS_COVERED}"
+          echo "   - Instructions totales: ${TOTAL}"
+          echo ""
+          echo "Seuil requis: ${THRESHOLD}%"
+          
+          echo "### Rapport de couverture de code" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Métrique | Valeur |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Couverture | **${COVERAGE}%** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Seuil requis | ${THRESHOLD}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Instructions couvertes | ${INSTRUCTIONS_COVERED} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Instructions totales | ${TOTAL} |" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$COVERAGE" -lt "$THRESHOLD" ]; then
+            MISSING=$((THRESHOLD - COVERAGE))
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**ÉCHEC**: La couverture de code (${COVERAGE}%) est inférieure au seuil requis de ${THRESHOLD}%" >> $GITHUB_STEP_SUMMARY
+            echo "   Il manque ${MISSING}% de couverture pour atteindre l'objectif" >> $GITHUB_STEP_SUMMARY
+            echo ""
+            echo "ÉCHEC: La couverture de code (${COVERAGE}%) est inférieure au seuil requis de ${THRESHOLD}%"
+            echo "   Il manque ${MISSING}% de couverture pour atteindre l'objectif"
+            exit 1
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**SUCCÈS**: La couverture de code répond aux exigences!" >> $GITHUB_STEP_SUMMARY
+            echo ""
+            echo "SUCCÈS: La couverture de code répond aux exigences!"
+          fi
+
+      - name: Package JAR
         run: |
           mvn package -DskipTests
           ls -lh target/*.jar
 
-      - name: 📤 Upload JAR Artifact
+      - name: Upload JAR Artifact
         uses: actions/upload-artifact@v4
         with:
           name: application-jar
           path: target/*.jar
           retention-days: 7
 
-      - name: 📤 Upload Test Results
+      - name: Upload Test Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -97,7 +147,7 @@ jobs:
           path: target/surefire-reports/
           retention-days: 7
 
-      - name: 📤 Upload JaCoCo Report
+      - name: Upload JaCoCo Report
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report

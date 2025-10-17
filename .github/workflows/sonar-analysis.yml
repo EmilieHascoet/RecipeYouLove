@@ -1,4 +1,4 @@
-name: 📊 SonarQube Analysis
+name: SonarQube Analysis
 
 on:
   workflow_call:
@@ -10,23 +10,22 @@ on:
 
 jobs:
   sonarqube-scan:
-    name: 📊 SonarQube Analysis
+    name: SonarQube Analysis
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     steps:
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: ☕ Setup Java ${{ inputs.java-version }}
+      - name: Setup Java ${{ inputs.java-version }}
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: ${{ inputs.java-version }}
           cache: 'maven'
 
-      - name: 💾 Cache SonarQube packages
+      - name: Cache SonarQube packages
         uses: actions/cache@v3
         with:
           path: ~/.sonar/cache
@@ -34,7 +33,7 @@ jobs:
           restore-keys: |
             sonar-${{ runner.os }}-
 
-      - name: 💾 Cache Maven dependencies
+      - name: Cache Maven dependencies
         uses: actions/cache@v3
         with:
           path: ~/.m2/repository
@@ -42,30 +41,35 @@ jobs:
           restore-keys: |
             maven-${{ runner.os }}-
 
-      - name: 📊 SonarQube Scan
+      - name: Download JaCoCo Report
+        uses: actions/download-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+
+      - name: SonarQube Scan
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Extraire le nom du projet depuis pom.xml
           PROJECT_NAME=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
           
-          echo "📊 Analyse SonarQube pour: $PROJECT_NAME"
+          echo "Analyse SonarQube pour: $PROJECT_NAME"
           
-          mvn clean verify sonar:sonar \
+          mvn sonar:sonar \
             -Dsonar.projectKey=${PROJECT_NAME} \
             -Dsonar.projectName="${PROJECT_NAME}" \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.token=${{ secrets.SONAR_TOKEN }} \
             -Dsonar.java.source=${{ inputs.java-version }} \
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
             -Dsonar.qualitygate.wait=true
 
-      - name: 📊 SonarQube Summary
+      - name: SonarQube Summary
         run: |
-          echo "### 📊 Analyse SonarQube terminée" >> $GITHUB_STEP_SUMMARY
+          echo "### Analyse SonarQube terminée" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ L'analyse de qualité du code a été effectuée avec succès" >> $GITHUB_STEP_SUMMARY
+          echo "L'analyse de qualité du code a été effectuée avec succès" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Consultez les résultats sur: ${{ secrets.SONAR_HOST_URL }}" >> $GITHUB_STEP_SUMMARY

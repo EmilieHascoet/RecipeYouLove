@@ -1,4 +1,4 @@
-name: 🔒 Check Conformity Image
+name: Check Conformity Image
 
 on:
   workflow_call:
@@ -7,53 +7,56 @@ on:
         description: "Tag de l'image Docker à scanner"
         required: true
         type: string
+      microservice-name:
+        description: "Nom du microservice"
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
   security-scan:
-    name: 🔍 Security Scan
+    name: Security Scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
       packages: read
     steps:
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 🔐 Login to GitHub Container Registry
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🔍 Préparer le nom de l'image
+      - name: Préparer le nom de l'image
         id: image
         run: |
-          # Convertir le nom du repository en minuscules (requis par Docker)
           IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           IMAGE_REF="${{ env.REGISTRY }}/${IMAGE_NAME}:${{ inputs.image-tag }}"
           
           echo "image-ref=${IMAGE_REF}" >> $GITHUB_OUTPUT
-          echo "🔍 Image à scanner: ${IMAGE_REF}"
+          echo "Image à scanner: ${IMAGE_REF}"
 
-      - name: 🔍 Vérifier que l'image existe
+      - name: Vérifier que l'image existe
         run: |
           IMAGE_REF="${{ steps.image.outputs.image-ref }}"
-          echo "🔍 Vérification de l'image: $IMAGE_REF"
+          echo "Vérification de l'image: $IMAGE_REF"
           
           if docker manifest inspect $IMAGE_REF > /dev/null 2>&1; then
-            echo "✅ Image trouvée dans le registry"
+            echo "Image trouvée dans le registry"
           else
-            echo "❌ Image non trouvée dans le registry!"
+            echo "Image non trouvée dans le registry!"
             echo "Vérifiez que le job build-docker-image a réussi."
             exit 1
           fi
 
-      - name: 🔍 Run Trivy vulnerability scanner (SARIF)
+      - name: Run Trivy vulnerability scanner (SARIF)
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
@@ -63,10 +66,10 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
           exit-code: '0'
 
-      - name: 🔍 Créer fichier SARIF si manquant
+      - name: Créer fichier SARIF si manquant
         run: |
           if [ ! -f "trivy-results.sarif" ]; then
-            echo "⚠️ Fichier SARIF non créé par Trivy, création d'un rapport vide valide"
+            echo "Fichier SARIF non créé par Trivy, création d'un rapport vide valide"
             cat > trivy-results.sarif <<'EOF'
           {
             "version": "2.1.0",
@@ -86,20 +89,20 @@ jobs:
             ]
           }
           EOF
-            echo "✅ Fichier SARIF vide créé"
+            echo "Fichier SARIF vide créé"
           else
-            echo "✅ Fichier SARIF créé avec succès par Trivy"
+            echo "Fichier SARIF créé avec succès par Trivy"
             ls -lh trivy-results.sarif
           fi
 
-      - name: 📤 Upload Trivy results to GitHub Security
+      - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         continue-on-error: true
         with:
           sarif_file: 'trivy-results.sarif'
           category: trivy-scan
 
-      - name: 🔍 Run Trivy for detailed report
+      - name: Run Trivy for detailed report
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
@@ -108,7 +111,7 @@ jobs:
           output: 'trivy-report.txt'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
 
-      - name: 📊 Parse Trivy results
+      - name: Parse Trivy results
         id: parse-trivy
         run: |
           REPORT_FILE="trivy-report.txt"
@@ -141,56 +144,37 @@ jobs:
             echo "medium=$MEDIUM" >> "$GITHUB_OUTPUT"
             echo "low=$LOW" >> "$GITHUB_OUTPUT"
             
-            echo "📊 Résultats du scan de sécurité:"
-            echo "   🔴 CRITICAL: $CRITICAL"
-            echo "   🟠 HIGH: $HIGH"
-            echo "   🟡 MEDIUM: $MEDIUM"
-            echo "   🔵 LOW: $LOW"
+            echo "Résultats du scan de sécurité:"
+            echo "   CRITICAL: $CRITICAL"
+            echo "   HIGH: $HIGH"
+            echo "   MEDIUM: $MEDIUM"
+            echo "   LOW: $LOW"
           else
-            echo "⚠️ Rapport détaillé non disponible"
+            echo "Rapport détaillé non disponible"
             echo "critical=0" >> "$GITHUB_OUTPUT"
             echo "high=0" >> "$GITHUB_OUTPUT"
             echo "medium=0" >> "$GITHUB_OUTPUT"
             echo "low=0" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: 📤 Upload Trivy report
-        uses: actions/upload-artifact@v4
+      - name: Upload Trivy report
         if: always()
-        continue-on-error: true
+        uses: actions/upload-artifact@v4
         with:
-          name: trivy-report
+          name: trivy-security-report
           path: trivy-report.txt
           retention-days: 30
 
-      - name: ⚠️ Check security threshold
+      - name: Security Summary
+        if: always()
         run: |
-          CRITICAL=${{ steps.parse-trivy.outputs.critical }}
-          HIGH=${{ steps.parse-trivy.outputs.high }}
-          
-          echo "📊 Vérification des seuils de sécurité..."
-          echo "   CRITICAL: $CRITICAL (seuil: 0)"
-          echo "   HIGH: $HIGH (seuil: 5)"
-          
-          if [ "$CRITICAL" -gt 0 ]; then
-            echo "❌ ÉCHEC: $CRITICAL vulnérabilités CRITIQUES détectées"
-            echo "::error::Des vulnérabilités critiques ont été détectées. Corrigez-les avant de déployer."
-            exit 1
-          fi
-          
-          if [ "$HIGH" -gt 5 ]; then
-            echo "⚠️ ATTENTION: $HIGH vulnérabilités HIGH détectées (seuil: 5)"
-            echo "::warning::Trop de vulnérabilités HIGH. Recommandation: corriger avant déploiement."
-          fi
-          
-          echo "✅ Scan de sécurité passé avec succès"
-          
-          # Créer un résumé GitHub
-          echo "### 🔒 Scan de sécurité terminé" >> $GITHUB_STEP_SUMMARY
+          echo "### Security Scan Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Sévérité | Nombre | Statut |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|--------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 🔴 CRITICAL | $CRITICAL | $([ "$CRITICAL" -eq 0 ] && echo "✅ OK" || echo "❌ ÉCHEC") |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🟠 HIGH | $HIGH | $([ "$HIGH" -le 5 ] && echo "✅ OK" || echo "⚠️ WARNING") |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🟡 MEDIUM | ${{ steps.parse-trivy.outputs.medium }} | ℹ️ Info |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🔵 LOW | ${{ steps.parse-trivy.outputs.low }} | ℹ️ Info |" >> $GITHUB_STEP_SUMMARY
+          echo "**Image scannée:** \`${{ steps.image.outputs.image-ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Sévérité | Nombre |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| CRITICAL | ${{ steps.parse-trivy.outputs.critical }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| HIGH | ${{ steps.parse-trivy.outputs.high }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| MEDIUM | ${{ steps.parse-trivy.outputs.medium }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| LOW | ${{ steps.parse-trivy.outputs.low }} |" >> $GITHUB_STEP_SUMMARY

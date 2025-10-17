@@ -1,180 +1,300 @@
-name: 🚀 Deploy to Kubernetes
+name: Déploiement Kubernetes
 
 on:
   workflow_call:
     inputs:
       environment:
-        description: "Environnement cible (dev/staging/production)"
+        description: "Environnement cible (integration/production)"
+        required: true
+        type: string
+      namespace:
+        description: "Namespace Kubernetes"
+        required: true
+        type: string
+      microservice-name:
+        description: "Nom du microservice"
         required: true
         type: string
       image-tag:
         description: "Tag de l'image Docker"
         required: true
         type: string
-
-env:
-  REGISTRY: ghcr.io
+      domain-suffix:
+        description: "Suffixe du domaine"
+        required: true
+        type: string
+      base-domain:
+        description: "Domaine de base"
+        required: true
+        type: string
 
 jobs:
   deploy:
-    name: 🚀 Deploy to ${{ inputs.environment }}
+    name: Déployer sur ${{ inputs.environment }}
     runs-on: ubuntu-latest
-    environment:
-      name: ${{ inputs.environment }}
+    environment: ${{ inputs.environment }}
     steps:
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 🔧 Setup Helm
-        uses: azure/setup-helm@v3
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
         with:
-          version: 'v3.13.0'
+          version: 'latest'
 
-      - name: 🔧 Setup kubectl
-        uses: azure/setup-kubectl@v3
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
         with:
-          version: 'v1.28.0'
+          version: 'latest'
 
-      - name: 🔐 Configure Kubernetes credentials
-        env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+      - name: Configure Kubernetes context
         run: |
           mkdir -p ~/.kube
-          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
           chmod 600 ~/.kube/config
+          
           kubectl cluster-info
+          kubectl get nodes
 
-      - name: 📋 Déterminer le namespace et app name
-        id: config
+      - name: Créer le namespace si nécessaire
         run: |
-          case "${{ inputs.environment }}" in
-            production) NAMESPACE="prod" ;;
-            staging) NAMESPACE="staging" ;;
-            dev) NAMESPACE="dev" ;;
-            *) NAMESPACE="dev" ;;
-          esac
-          
-          # Extraire le nom depuis pom.xml
-          APP_NAME=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout 2>/dev/null || echo "application")
-          
-          # Convertir le nom du repository en minuscules (requis par Docker)
-          IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          
-          echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
-          echo "app_name=${APP_NAME}" >> $GITHUB_OUTPUT
-          echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
-          
-          echo "🚀 Déploiement de: $APP_NAME"
-          echo "📦 Namespace: $NAMESPACE"
-          echo "🐳 Image: ${IMAGE_NAME}"
-          echo "🏷️ Image tag: ${{ inputs.image-tag }}"
+          kubectl create namespace ${{ inputs.namespace }} --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace ${{ inputs.namespace }} environment=${{ inputs.environment }} --overwrite
 
-      - name: 📦 Vérifier/Créer namespace
+      - name: Créer le Secret pour le registry Docker
         run: |
-          NAMESPACE="${{ steps.config.outputs.namespace }}"
-          if ! kubectl get namespace $NAMESPACE &> /dev/null; then
-            echo "📦 Création du namespace: $NAMESPACE"
-            kubectl create namespace $NAMESPACE
-          else
-            echo "✅ Namespace $NAMESPACE existe déjà"
-          fi
-
-      - name: 🔐 Create Image Pull Secret
-        run: |
-          NAMESPACE="${{ steps.config.outputs.namespace }}"
           kubectl create secret docker-registry ghcr-secret \
-            --docker-server=${{ env.REGISTRY }} \
+            --docker-server=ghcr.io \
             --docker-username=${{ github.actor }} \
             --docker-password=${{ secrets.GITHUB_TOKEN }} \
-            --namespace=$NAMESPACE \
+            --namespace=${{ inputs.namespace }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: 🚀 Deploy with Helm
-        working-directory: helm-charts
+      - name: Préparer les valeurs Helm
+        id: helm-values
         run: |
-          NAMESPACE="${{ steps.config.outputs.namespace }}"
-          APP_NAME="${{ steps.config.outputs.app_name }}"
-          IMAGE_NAME="${{ steps.config.outputs.image_name }}"
-          IMAGE_TAG="${{ inputs.image-tag }}"
+          IMAGE_REPO="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}"
+          IMAGE_REPO=$(echo "$IMAGE_REPO" | tr '[:upper:]' '[:lower:]')
           
-          VALUES_FILE="values-${{ inputs.environment }}.yaml"
-          if [ ! -f "$VALUES_FILE" ]; then
-            echo "⚠️ Fichier $VALUES_FILE non trouvé, utilisation de values.yaml"
-            VALUES_FILE="values.yaml"
+          FULL_DOMAIN="soa-${{ inputs.microservice-name }}${{ inputs.domain-suffix }}.${{ inputs.base-domain }}"
+          
+          # Déterminer le vault role selon l'environnement
+          if [ "${{ inputs.environment }}" == "production" ]; then
+            VAULT_ROLE="production"
+            REPLICAS=3
+            MEMORY_REQUEST="512Mi"
+            MEMORY_LIMIT="1Gi"
+            CPU_REQUEST="500m"
+            CPU_LIMIT="1000m"
+          else
+            VAULT_ROLE="integration"
+            REPLICAS=2
+            MEMORY_REQUEST="256Mi"
+            MEMORY_LIMIT="512Mi"
+            CPU_REQUEST="250m"
+            CPU_LIMIT="500m"
           fi
           
-          echo "📋 Déploiement avec les valeurs: $VALUES_FILE"
+          echo "IMAGE_REPO=$IMAGE_REPO" >> $GITHUB_OUTPUT
+          echo "FULL_DOMAIN=$FULL_DOMAIN" >> $GITHUB_OUTPUT
+          echo "VAULT_ROLE=$VAULT_ROLE" >> $GITHUB_OUTPUT
+          echo "REPLICAS=$REPLICAS" >> $GITHUB_OUTPUT
+          echo "MEMORY_REQUEST=$MEMORY_REQUEST" >> $GITHUB_OUTPUT
+          echo "MEMORY_LIMIT=$MEMORY_LIMIT" >> $GITHUB_OUTPUT
+          echo "CPU_REQUEST=$CPU_REQUEST" >> $GITHUB_OUTPUT
+          echo "CPU_LIMIT=$CPU_LIMIT" >> $GITHUB_OUTPUT
           
-          helm upgrade --install $APP_NAME . \
-            --namespace $NAMESPACE \
-            --create-namespace \
-            --values $VALUES_FILE \
-            --set image.repository=${{ env.REGISTRY }}/${IMAGE_NAME} \
-            --set image.tag=$IMAGE_TAG \
-            --set nameOverride=$APP_NAME \
-            --set fullnameOverride=$APP_NAME \
-            --wait \
-            --timeout 5m
+          echo "Image: $IMAGE_REPO:${{ inputs.image-tag }}"
+          echo "Domaine: $FULL_DOMAIN"
+          echo "Vault Role: $VAULT_ROLE"
+          echo "Replicas: $REPLICAS"
 
-      - name: 🔍 Vérifier le déploiement
+      - name: Créer le values.yaml personnalisé
         run: |
-          NAMESPACE="${{ steps.config.outputs.namespace }}"
-          APP_NAME="${{ steps.config.outputs.app_name }}"
+          cat > custom-values.yaml <<EOF
+          replicaCount: ${{ steps.helm-values.outputs.REPLICAS }}
           
-          echo "⏳ Attente que les pods soient prêts..."
-          kubectl wait --for=condition=ready pod -l app=$APP_NAME --namespace=$NAMESPACE --timeout=300s
+          image:
+            repository: ${{ steps.helm-values.outputs.IMAGE_REPO }}
+            tag: "${{ inputs.image-tag }}"
+            pullPolicy: IfNotPresent
           
-          echo "✅ Pods déployés:"
-          kubectl get pods -n $NAMESPACE -l app=$APP_NAME
+          imagePullSecrets:
+            - name: ghcr-secret
           
-          echo ""
-          echo "📊 Services:"
-          kubectl get svc -n $NAMESPACE -l app=$APP_NAME
-
-      - name: 💾 Save deployment info
-        run: |
-          NAMESPACE="${{ steps.config.outputs.namespace }}"
-          APP_NAME="${{ steps.config.outputs.app_name }}"
-          IMAGE_NAME="${{ steps.config.outputs.image_name }}"
+          service:
+            type: ClusterIP
+            port: 8080
+            targetPort: 8080
+            name: ${{ inputs.microservice-name }}
           
-          # Sauvegarder les infos pour les tests d'intégration
-          mkdir -p deployment-info
+          ingress:
+            enabled: true
+            className: nginx
+            annotations:
+              cert-manager.io/cluster-issuer: "letsencrypt-prod"
+              nginx.ingress.kubernetes.io/ssl-redirect: "true"
+              nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+            host: ${{ steps.helm-values.outputs.FULL_DOMAIN }}
+            tls:
+              enabled: true
+              secretName: ${{ inputs.microservice-name }}-tls
           
-          SERVICE_NAME=$(kubectl get svc -n $NAMESPACE -l app=$APP_NAME -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-          SERVICE_PORT=$(kubectl get svc -n $NAMESPACE -l app=$APP_NAME -o jsonpath='{.items[0].spec.ports[0].port}' 2>/dev/null || echo "8080")
+          resources:
+            limits:
+              cpu: ${{ steps.helm-values.outputs.CPU_LIMIT }}
+              memory: ${{ steps.helm-values.outputs.MEMORY_LIMIT }}
+            requests:
+              cpu: ${{ steps.helm-values.outputs.CPU_REQUEST }}
+              memory: ${{ steps.helm-values.outputs.MEMORY_REQUEST }}
           
-          cat > deployment-info/app.json <<EOF
-          {
-            "application": "$APP_NAME",
-            "namespace": "$NAMESPACE",
-            "service_name": "$SERVICE_NAME",
-            "service_port": "$SERVICE_PORT",
-            "image": "${{ env.REGISTRY }}/${IMAGE_NAME}:${{ inputs.image-tag }}",
-            "environment": "${{ inputs.environment }}"
-          }
+          vault:
+            enabled: true
+            role: ${{ steps.helm-values.outputs.VAULT_ROLE }}
+            path: secret/data/${{ inputs.environment }}/${{ inputs.microservice-name }}
+          
+          app:
+            javaOpts: "-Xmx${{ steps.helm-values.outputs.MEMORY_REQUEST }} -Xms128m"
+            profile: "${{ inputs.environment }}"
+            timezone: "Europe/Paris"
+          
+          healthCheck:
+            enabled: true
+            livenessProbe:
+              httpGet:
+                path: /actuator/health/liveness
+                port: 8080
+              initialDelaySeconds: 60
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 3
+            readinessProbe:
+              httpGet:
+                path: /actuator/health/readiness
+                port: 8080
+              initialDelaySeconds: 30
+              periodSeconds: 5
+              timeoutSeconds: 3
+              failureThreshold: 3
+          
+          serviceAccount:
+            create: true
+            name: ${{ inputs.microservice-name }}-sa
           EOF
           
-          echo "📄 Informations de déploiement sauvegardées"
+          echo "Configuration Helm créée:"
+          cat custom-values.yaml
 
-      - name: 📤 Upload deployment info
-        uses: actions/upload-artifact@v4
-        with:
-          name: deployment-info
-          path: deployment-info/app.json
-          retention-days: 1
-
-      - name: 📊 Deployment Summary
+      - name: Déployer avec Helm
         run: |
-          NAMESPACE="${{ steps.config.outputs.namespace }}"
-          APP_NAME="${{ steps.config.outputs.app_name }}"
-          IMAGE_NAME="${{ steps.config.outputs.image_name }}"
+          helm upgrade --install ${{ inputs.microservice-name }} ./.github/helm/chart \
+            --namespace=${{ inputs.namespace }} \
+            --create-namespace \
+            --values custom-values.yaml \
+            --wait \
+            --timeout=10m \
+            --atomic
+
+      - name: Vérifier le déploiement
+        run: |
+          echo "Attente du déploiement..."
+          kubectl rollout status deployment/${{ inputs.microservice-name }} -n ${{ inputs.namespace }} --timeout=5m
           
-          echo "### 🚀 Déploiement réussi" >> $GITHUB_STEP_SUMMARY
+          echo ""
+          echo "État des pods:"
+          kubectl get pods -n ${{ inputs.namespace }} -l app=${{ inputs.microservice-name }}
+          
+          echo ""
+          echo "Service exposé:"
+          kubectl get service ${{ inputs.microservice-name }} -n ${{ inputs.namespace }}
+          
+          echo ""
+          echo "Ingress configuré:"
+          kubectl get ingress -n ${{ inputs.namespace }}
+          
+          echo ""
+          echo "Certificat TLS:"
+          kubectl get certificate -n ${{ inputs.namespace }} ${{ inputs.microservice-name }}-tls || echo "Certificat en cours de création..."
+
+      - name: Attendre le certificat SSL
+        run: |
+          echo "Attente de l'émission du certificat SSL..."
+          for i in {1..30}; do
+            STATUS=$(kubectl get certificate -n ${{ inputs.namespace }} ${{ inputs.microservice-name }}-tls -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+            if [ "$STATUS" == "True" ]; then
+              echo "Certificat SSL émis avec succès!"
+              kubectl describe certificate -n ${{ inputs.namespace }} ${{ inputs.microservice-name }}-tls
+              break
+            fi
+            echo "Tentative $i/30 - Certificat pas encore prêt..."
+            sleep 10
+          done
+
+      - name: Test de santé
+        run: |
+          echo "Attente que le service soit accessible..."
+          sleep 30
+          
+          HEALTH_URL="https://${{ steps.helm-values.outputs.FULL_DOMAIN }}/actuator/health"
+          
+          echo "Test de l'endpoint: $HEALTH_URL"
+          
+          for i in {1..20}; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -k "$HEALTH_URL" || echo "000")
+            if [ "$HTTP_CODE" == "200" ]; then
+              echo "Service accessible et en bonne santé!"
+              echo "Réponse du health check:"
+              curl -k -s "$HEALTH_URL" | jq . || curl -k -s "$HEALTH_URL"
+              exit 0
+            fi
+            echo "Tentative $i/20 - Code HTTP: $HTTP_CODE"
+            sleep 15
+          done
+          
+          echo "ATTENTION: Le service ne répond pas encore au health check"
+          echo "Vérifiez manuellement: $HEALTH_URL"
+          echo "Logs du pod:"
+          kubectl logs -n ${{ inputs.namespace }} -l app=${{ inputs.microservice-name }} --tail=50 || true
+
+      - name: Récupérer les logs en cas d'échec
+        if: failure()
+        run: |
+          echo "=== LOGS DES PODS ==="
+          kubectl logs -n ${{ inputs.namespace }} -l app=${{ inputs.microservice-name }} --tail=100 || true
+          
+          echo ""
+          echo "=== DESCRIPTION DES PODS ==="
+          kubectl describe pods -n ${{ inputs.namespace }} -l app=${{ inputs.microservice-name }} || true
+          
+          echo ""
+          echo "=== EVENTS DU NAMESPACE ==="
+          kubectl get events -n ${{ inputs.namespace }} --sort-by='.lastTimestamp' | tail -20 || true
+          
+          echo ""
+          echo "=== INGRESS DETAILS ==="
+          kubectl describe ingress -n ${{ inputs.namespace }} || true
+          
+          echo ""
+          echo "=== CERTIFICATE DETAILS ==="
+          kubectl describe certificate -n ${{ inputs.namespace }} || true
+
+      - name: Résumé du déploiement
+        if: always()
+        run: |
+          echo "### Déploiement sur ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Paramètre | Valeur |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 📦 Application | \`$APP_NAME\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🌍 Environnement | **${{ inputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
-          echo "| ☸️ Namespace | \`$NAMESPACE\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🏷️ Image Tag | \`${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🐳 Image | \`${{ env.REGISTRY }}/${IMAGE_NAME}:${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Microservice | \`${{ inputs.microservice-name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environnement | **${{ inputs.environment }}** |" >> $GITHUB_STEP_SUMMARY
+          echo "| Namespace | \`${{ inputs.namespace }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.helm-values.outputs.IMAGE_REPO }}:${{ inputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | [https://${{ steps.helm-values.outputs.FULL_DOMAIN }}](https://${{ steps.helm-values.outputs.FULL_DOMAIN }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Health Check | [/actuator/health](https://${{ steps.helm-values.outputs.FULL_DOMAIN }}/actuator/health) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Replicas | ${{ steps.helm-values.outputs.REPLICAS }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Resources | CPU: ${{ steps.helm-values.outputs.CPU_REQUEST }}/${{ steps.helm-values.outputs.CPU_LIMIT }}, Memory: ${{ steps.helm-values.outputs.MEMORY_REQUEST }}/${{ steps.helm-values.outputs.MEMORY_LIMIT }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Pods déployés" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -n ${{ inputs.namespace }} -l app=${{ inputs.microservice-name }} >> $GITHUB_STEP_SUMMARY || echo "Impossible de récupérer les pods" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
