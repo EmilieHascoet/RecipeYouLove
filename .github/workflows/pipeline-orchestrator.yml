@@ -34,26 +34,35 @@ jobs:
     uses: ./.github/workflows/build-maven.yml
     with:
       java-version: '21'
+
+  # ============================================
+  # 3. Vérification de la couverture
+  # ============================================
+  check-coverage:
+    name: Check Coverage
+    needs: [setup-config, build-maven]
+    uses: ./.github/workflows/check-coverage.yml
+    with:
       coverage-threshold: ${{ needs.setup-config.outputs.coverage-threshold }}
 
   # ============================================
-  # 3. SonarQube (uniquement sur PR vers main)
+  # 4. SonarQube (uniquement sur PR vers main)
   # ============================================
   sonarqube-analysis:
     name: SonarQube
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    needs: [setup-config, build-maven]
+    needs: [setup-config, build-maven, check-coverage]
     uses: ./.github/workflows/sonar-analysis.yml
     with:
       java-version: '21'
     secrets: inherit
 
   # ============================================
-  # 4. Build Docker Image
+  # 5. Build Docker Image
   # ============================================
   build-docker-image:
     name: Docker Image
-    needs: [setup-config, build-maven]
+    needs: [setup-config, build-maven, check-coverage]
     if: github.event_name != 'pull_request'
     uses: ./.github/workflows/build-docker-image.yml
     with:
@@ -65,7 +74,7 @@ jobs:
       packages: write
 
   # ============================================
-  # 5. Security Scan de l'image
+  # 6. Security Scan de l'image
   # ============================================
   security-scan:
     name: Security Scan
@@ -82,7 +91,7 @@ jobs:
       security-events: write
 
   # ============================================
-  # 6. Déploiement Kubernetes
+  # 7. Déploiement Kubernetes
   # ============================================
   deploy-kubernetes:
     name: Deploy K8s
@@ -101,11 +110,11 @@ jobs:
     secrets: inherit
 
   # ============================================
-  # 7. Résumé final
+  # 8. Résumé final
   # ============================================
   pipeline-summary:
     name: Résumé Pipeline
-    needs: [setup-config, build-maven, build-docker-image, security-scan, deploy-kubernetes]
+    needs: [setup-config, build-maven, check-coverage, build-docker-image, security-scan, deploy-kubernetes]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -127,6 +136,13 @@ jobs:
             echo "- [x] Build & Tests Maven" >> $GITHUB_STEP_SUMMARY
           else
             echo "- [ ] Build & Tests Maven (FAILED)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Check Coverage
+          if [[ "${{ needs.check-coverage.result }}" == "success" ]]; then
+            echo "- [x] Vérification de la couverture" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- [ ] Vérification de la couverture (FAILED)" >> $GITHUB_STEP_SUMMARY
           fi
           
           # SonarQube

@@ -7,10 +7,6 @@ on:
         description: "Version de Java"
         required: true
         type: string
-      coverage-threshold:
-        description: "Seuil de couverture minimum"
-        required: true
-        type: string
 
 env:
   MAVEN_OPTS: '-Xmx3072m -XX:+UseG1GC'
@@ -75,57 +71,6 @@ jobs:
           fi
           
           echo "Rapport JaCoCo généré avec succès"
-
-      - name: Vérifier la couverture de code
-        run: |
-          if [ ! -f "target/site/jacoco/jacoco.xml" ]; then
-            echo "Rapport JaCoCo non trouvé!"
-            exit 1
-          fi
-          
-          INSTRUCTIONS_MISSED=$(grep -oP 'type="INSTRUCTION".*?missed="\K[0-9]+' target/site/jacoco/jacoco.xml | head -1)
-          INSTRUCTIONS_COVERED=$(grep -oP 'type="INSTRUCTION".*?covered="\K[0-9]+' target/site/jacoco/jacoco.xml | head -1)
-          
-          TOTAL=$((INSTRUCTIONS_MISSED + INSTRUCTIONS_COVERED))
-          
-          if [ "$TOTAL" -eq 0 ]; then
-            COVERAGE=0
-          else
-            COVERAGE=$((INSTRUCTIONS_COVERED * 100 / TOTAL))
-          fi
-          
-          THRESHOLD=${{ inputs.coverage-threshold }}
-          
-          echo "Couverture de code: ${COVERAGE}%"
-          echo "   - Instructions couvertes: ${INSTRUCTIONS_COVERED}"
-          echo "   - Instructions totales: ${TOTAL}"
-          echo ""
-          echo "Seuil requis: ${THRESHOLD}%"
-          
-          echo "### Rapport de couverture de code" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Métrique | Valeur |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Couverture | **${COVERAGE}%** |" >> $GITHUB_STEP_SUMMARY
-          echo "| Seuil requis | ${THRESHOLD}% |" >> $GITHUB_STEP_SUMMARY
-          echo "| Instructions couvertes | ${INSTRUCTIONS_COVERED} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Instructions totales | ${TOTAL} |" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "$COVERAGE" -lt "$THRESHOLD" ]; then
-            MISSING=$((THRESHOLD - COVERAGE))
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**ÉCHEC**: La couverture de code (${COVERAGE}%) est inférieure au seuil requis de ${THRESHOLD}%" >> $GITHUB_STEP_SUMMARY
-            echo "   Il manque ${MISSING}% de couverture pour atteindre l'objectif" >> $GITHUB_STEP_SUMMARY
-            echo ""
-            echo "ÉCHEC: La couverture de code (${COVERAGE}%) est inférieure au seuil requis de ${THRESHOLD}%"
-            echo "   Il manque ${MISSING}% de couverture pour atteindre l'objectif"
-            exit 1
-          else
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**SUCCÈS**: La couverture de code répond aux exigences!" >> $GITHUB_STEP_SUMMARY
-            echo ""
-            echo "SUCCÈS: La couverture de code répond aux exigences!"
-          fi
 
       - name: Package JAR
         run: |
