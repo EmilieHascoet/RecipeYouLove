@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       microservice-name:
-        description: "Nom du microservice"
+        description: "SmartDish Template"
         required: true
         type: string
 
