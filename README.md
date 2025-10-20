@@ -285,7 +285,7 @@ spring.application.name=nom-de-votre-microservice
 ### 3. Structure recommandée pour chaque microservice
 
 ```
-src/main/java/com/smartdish/[microservice]/
+src/main/java/com/smartdish/
 ├── Application.java
 ├── config/
 │   ├── DatabaseConfig.java
@@ -303,8 +303,8 @@ src/main/java/com/smartdish/[microservice]/
 │   ├── entity/
 │   │   └── [Entity].java
 │   └── dto/
-│       ├── [Entity]RequestDto.java
-│       └── [Entity]ResponseDto.java
+│       ├── [Entity]Request.java
+│       └── [Entity]Response.java
 └── exception/
     ├── GlobalExceptionHandler.java
     └── [Custom]Exception.java
